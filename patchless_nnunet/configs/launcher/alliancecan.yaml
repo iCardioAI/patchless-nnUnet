@@ -11,4 +11,4 @@ defaults:
 # i) when the jobs are submitted (env var points to data on shared filesystem)
 # ii) and when jobs are run (env var points to data on compute node)
 paths:
-  data_dir: ${oc.env:ASCENT_DATA_PATH}
+  data_dir: ${oc.env:PNNU_DATA_PATH}
