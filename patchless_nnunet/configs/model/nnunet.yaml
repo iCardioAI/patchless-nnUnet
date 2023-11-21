@@ -1,0 +1,10 @@
+defaults:
+  - net: unet
+  - optimizer: sgd
+  - scheduler: polylr
+  - loss: dice_ce
+
+tta: True
+save_predictions: True
+save_npz: False
+name: nnUNet

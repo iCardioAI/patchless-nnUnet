@@ -1,0 +1,22 @@
+# @package _global_
+
+defaults:
+  - override /datamodule: patchless_nnunet
+  - override /model: patchless_3d
+  - override /callbacks: nnunet_patchless
+  - override /logger: tensorboard
+  - override /trainer: nnunet
+  - override /hydra: nnunet
+
+tags: ["${model.name}_${nnUNet_variant}", "Fold${fold}"]
+task_name: "patchless"
+train: True
+test: True
+best_model: True
+logger:
+  tensorboard:
+    name: "${model.name}"
+
+trainer:
+  limit_train_batches: 1.0
+  limit_val_batches: 1.0
