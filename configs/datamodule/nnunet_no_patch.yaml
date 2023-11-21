@@ -1,0 +1,9 @@
+_target_: patchless_nnUnet_datamodule.PatchlessnnUnetDataModule
+data_dir: ${paths.data_dir}
+num_workers: 12
+pin_memory: True
+batch_size: 1
+dataset_name: subset_3
+common_spacing: [0.37, 0.37, 1]
+max_window_len: 4
+max_batch_size: null

@@ -1,0 +1,11 @@
+# @package _global_
+
+# runs 1 train, 1 validation and 1 test step
+
+defaults:
+  - default
+
+trainer:
+  fast_dev_run: true
+  limit_val_batches: 1
+  accelerator: gpu

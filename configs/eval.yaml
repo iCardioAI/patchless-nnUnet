@@ -1,0 +1,27 @@
+# @package _global_
+
+defaults:
+  - datamodule: mnist # choose datamodule with `test_dataloader()` for evaluation
+  - model: mnist
+  - callbacks: default
+  - logger: null
+  - trainer: default
+  - paths: default
+  - extras: default
+  - hydra: default
+  - _self_
+  - experiment: null
+  - optional launcher: null # List custom launcher after trainer/datamodule, so that it can override their configs
+
+task_name: "eval"
+
+tags: ["eval"]
+
+# desired fold for training
+fold: 0
+
+# passing checkpoint path is necessary for evaluation
+ckpt_path: ???
+
+# 2D or 3D variant of nnUNet
+nnUNet_variant: null

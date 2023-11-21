@@ -1,0 +1,9 @@
+defaults:
+  - nnunet_no_patch
+
+batch_size: 1
+dataset_name: subset_3
+num_workers: 12
+common_spacing: [0.37, 0.37, 1]
+max_window_len: null
+max_batch_size: null
