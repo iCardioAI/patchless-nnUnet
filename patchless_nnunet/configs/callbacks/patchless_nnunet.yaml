@@ -9,16 +9,17 @@ defaults:
 model_checkpoint:
   dirpath: ${paths.output_dir}/checkpoints
   filename: "epoch_{epoch:03d}"
-  monitor: "val/loss"
-  mode: "min"
-  save_last: True
+  monitor: "val/mean_dice"
+  mode: "max"
+  save_last: False
   auto_insert_metric_name: False
 
 early_stopping:
   _target_: lightning.pytorch.callbacks.EarlyStopping
-  monitor: val/loss
+  monitor: val/mean_dice
   patience: 15
-  mode: "min"
+  mode: "max"
+  verbose: True
 
 model_summary:
   max_depth: -1
