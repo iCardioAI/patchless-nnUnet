@@ -380,7 +380,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         if len(preds.shape[1:]) == len(original_shape) - 1:
             preds = preds[..., None]
 
-        fname = properties_dict.get("case_identifier")
+        fname = properties_dict.get("case_identifier")[0]
         spacing = properties_dict.get("original_spacing").cpu().detach().numpy()[0]
         resampled_affine = properties_dict.get("resampled_affine").cpu().detach().numpy()[0]
         affine = properties_dict.get('original_affine').cpu().detach().numpy()[0]

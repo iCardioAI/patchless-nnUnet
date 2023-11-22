@@ -2,18 +2,15 @@
 
 defaults:
   - model: ???
-  - trainer: nnunet
+  - trainer: patchless_nnunet
   - paths: default
   - extras: default
-  - hydra: nnunet
+  - hydra: patchless_nnunet
   - _self_
 
 task_name: "predict"
 
 tags: ["predict"]
-
-# dataset name (eg. CAMUS)
-dataset: ???
 
 # input folder containing data for inference
 input_folder: ???
@@ -24,14 +21,11 @@ output_folder: ???
 # passing checkpoint path is necessary for prediction
 ckpt_path: ???
 
-# whether to use test time augmentation (flipping)
+# whether to use test time augmentation
 tta: True
 
 # whether to overwrite existing predictions in the output folder
 overwrite_existing: True
-
-# whether to save probability maps
-save_npz: False
 
 pin_memory: True
 
@@ -46,6 +40,5 @@ paths:
   output_dir: ${output_folder}
 
 model:
-  save_npz: ${save_npz}
   save_predictions: True
   tta: ${tta}

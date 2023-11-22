@@ -4,7 +4,7 @@ Code repository for patchless version of the nnUnet.
 
 (Inspired by https://github.com/creatis-myriad/ASCENT/)
 
-# Description
+## Description
 
 This code base allows you to train a 3D Unet for a multi-classs segmentation task with images stored in nifti format.
 
@@ -32,7 +32,7 @@ This code base allows you to train a 3D Unet for a multi-classs segmentation tas
    pip install -e .
    ```
 
-# Data
+## Data
 
 The images used with this project are 3d (H x W x timestep) and are saved in the nifti format.
 The dataloader assumes a file hierarchy format associated with a csv dataframe.
@@ -41,7 +41,7 @@ The filename corresponds to the dicom uuid of the image.
 Images and their respective ground truth labels are stored in separate, by identically formatted folders ('img' and 'segmentation') residing one next to another.
 Images and their segmentation map that are to be used in the training must be identified with the 'valid_segmentation' column in the dataframe.
 * Currently, images are required to have the _0000 suffix.
-## Example:
+### Example:
 
 dataframe.csv:
 
@@ -78,7 +78,7 @@ The associated files would be:
 │        └── a4c
 │            └──di-WXYZ-6789-ABCD.nii.gz
 ```
-# Training
+## Training
 
 To train the network, use the following command:
 ```bash
@@ -91,9 +91,30 @@ For example:
 python runner.py experiment=patchless trainer.max_epochs=20
 ```
 
-# Inference
+## Inference
 
 To run inference on a set of new images, use the following command. Make sure to specify input and output folder as well as model checkpoint to use.
 ```bash
-python predictor.py input_path=<INPUT_PATH> output_path=<OUTPUT_PATH> ckpt_path=<CKPT_PATH>
+python predictor.py model=patchless_nnunet input_path=<INPUT_PATH> output_path=<OUTPUT_PATH> ckpt_path=<CKPT_PATH>
 ```
+
+
+## Define custom data and logs path
+
+In some cases, you may want to specify your own data and logs paths instead of using the default `data/` and `logs/`. You can do this by setting them in environments variables after renaming the [.env.example](.env.example) file to `.env`. In the `.env`, simply override:
+
+```bash
+# custom data path
+PNNU_DATA_PATH="path/to/data"
+
+# custom logs path
+PNNU_LOGS_PATH="paths/to/logs"
+```
+
+After that, you must override `paths=custom` in all your commands, e.g.:
+
+```bash
+# to use custom data and logs paths
+python runner.py experiment=patchless paths=custom
+```
+
