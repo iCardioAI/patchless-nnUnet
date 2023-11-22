@@ -3,7 +3,9 @@ data_dir: ${paths.data_dir}
 num_workers: 12
 pin_memory: True
 batch_size: 1
-dataset_name: subset_3
+dataset_name: icardio_subset
 common_spacing: [0.37, 0.37, 1]
 max_window_len: 4
-max_batch_size: null
+max_batch_size: 4
+max_tensor_volume: ???
+shape_divisible_by: [32, 32, 4]

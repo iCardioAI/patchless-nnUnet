@@ -1,10 +1,7 @@
 defaults:
   - gpu
 
-max_epochs: 1000
-
-limit_train_batches: 250
-limit_val_batches: 50
+max_epochs: 50
 
 # gradient clipping
 gradient_clip_val: 12

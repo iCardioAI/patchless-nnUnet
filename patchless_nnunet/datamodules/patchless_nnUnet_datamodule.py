@@ -24,6 +24,8 @@ class PatchlessnnUnetDataset(Dataset):
                  max_window_len=None,
                  use_dataset_fraction=1.0,
                  max_batch_size=None,
+                 max_tensor_volume=5000000,
+                 shape_divisible_by=(32, 32, 4),
                  seed=0,
                  test=False,
                  *args, **kwargs):
@@ -33,6 +35,8 @@ class PatchlessnnUnetDataset(Dataset):
         self.df = pd.read_csv(csv_file, index_col=0)
         self.df = self.df[self.df['valid_segmentation'] == True]
 
+        self.max_tensor_volume = max_tensor_volume
+        self.shape_divisible_by = shape_divisible_by
         self.max_window_len = max_window_len
         self.max_batch_size = max_batch_size
         if self.max_batch_size and self.max_batch_size > 10:
@@ -74,9 +78,8 @@ class PatchlessnnUnetDataset(Dataset):
 
         # limit size of tensor so it can fit on GPU
         if not self.test:
-            # TODO: TRY TO COMPUTE THIS VALUE FROM MACHINE'S GPU ON INIT
-            if img.shape[0] * img.shape[1] * img.shape[2] > 5000000:
-                time_len = int(5000000 // (img.shape[0] * img.shape[1]))
+            if img.shape[0] * img.shape[1] * img.shape[2] > self.max_tensor_volume:
+                time_len = int(self.max_tensor_volume // (img.shape[0] * img.shape[1]))
                 img = img[..., :time_len]
                 mask = mask[..., :time_len]
 
@@ -140,12 +143,12 @@ class PatchlessnnUnetDataset(Dataset):
         self.common_spacing = spacings / len(idx)
         print(f"ESTIMATED COMMON AVERAGE SPACING: {self.common_spacing}")
 
-    def get_desired_size(self, current_shape, divisible_by=(32, 32, 4)):
+    def get_desired_size(self, current_shape):
         # get desired closest divisible bigger shape
-        x = int(np.ceil(current_shape[0] / divisible_by[0]) * divisible_by[0])
-        y = int(np.ceil(current_shape[1] / divisible_by[1]) * divisible_by[1])
+        x = int(np.ceil(current_shape[0] / self.shape_divisible_by[0]) * self.shape_divisible_by[0])
+        y = int(np.ceil(current_shape[1] / self.shape_divisible_by[1]) * self.shape_divisible_by[1])
         if not self.test:
-            z = int(np.ceil(current_shape[2] / divisible_by[2]) * divisible_by[2])
+            z = int(np.ceil(current_shape[2] / self.shape_divisible_by[2]) * self.shape_divisible_by[2])
         else:
             z = current_shape[2]
         return x, y, z
@@ -157,11 +160,13 @@ class PatchlessnnUnetDataModule(LightningDataModule):
     def __init__(
             self,
             data_dir: str = "data/",
-            dataset_name: str = "CAMUS",
+            dataset_name: str = "",
             batch_size: int = 1,
             common_spacing: tuple[float, ...] = None,
             max_window_len: int = None,
             max_batch_size: int = None,
+            max_tensor_volume: int = 5000000,
+            shape_divisible_by: tuple[int, ...] = (32, 32, 4),
             use_dataset_fraction: float = 1.0,
             num_workers: int = os.cpu_count() - 1,
             pin_memory: bool = True,
@@ -214,7 +219,10 @@ class PatchlessnnUnetDataModule(LightningDataModule):
                                                     common_spacing=self.hparams.common_spacing,
                                                     max_window_len=self.hparams.max_window_len,
                                                     use_dataset_fraction=self.hparams.use_dataset_fraction,
-                                                    max_batch_size=self.hparams.max_batch_size)
+                                                    max_batch_size=self.hparams.max_batch_size,
+                                                    max_tensor_volume=self.hparams.max_tensor_volume,
+                                                    shape_divisible_by=list(self.hparams.shape_divisible_by)
+                                                    )
             train_set_size = int(len(train_set_full) * 0.9)
             valid_set_size = len(train_set_full) - train_set_size
             self.data_train, self.data_val = random_split(train_set_full, [train_set_size, valid_set_size])
@@ -223,7 +231,9 @@ class PatchlessnnUnetDataModule(LightningDataModule):
         if stage == "test" or stage is None:
             self.data_test = PatchlessnnUnetDataset(self.hparams.data_dir + '/' + self.hparams.dataset_name,
                                                     test=True,
-                                                    common_spacing=self.hparams.common_spacing)
+                                                    common_spacing=self.hparams.common_spacing,
+                                                    shape_divisible_by=list(self.hparams.shape_divisible_by)
+                                                    )
 
     def train_dataloader(self) -> DataLoader:  # noqa: D102
         return DataLoader(
@@ -259,11 +269,15 @@ class PatchlessnnUnetDataModule(LightningDataModule):
 
 
 if __name__ == "__main__":
-    dl = PatchlessnnUnetDataModule('./data/icardio_subset/',
+    import pyrootutils
+
+    root = pyrootutils.setup_root(__file__, pythonpath=True)
+
+    dl = PatchlessnnUnetDataModule((root / 'data/').as_posix(),
                                    common_spacing=(0.37, 0.37, 1.0),
                                    max_window_len=4,
                                    max_batch_size=2,
-                                   dataset_name='',
+                                   dataset_name='icardio_subset',
                                    num_workers=1,
                                    batch_size=1)
     dl.setup()

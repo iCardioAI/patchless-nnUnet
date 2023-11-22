@@ -4,6 +4,7 @@ from typing import List, Tuple
 import hydra
 import lightning as pl
 import torch
+import torchinfo
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import CometLogger, Logger
 from omegaconf import DictConfig
@@ -33,7 +34,7 @@ class PatchlessnnUnetTrainer(ABC):
         setup_root()
 
     @staticmethod
-    @hydra.main(version_base="1.3", config_path="configs", config_name="train")
+    @hydra.main(version_base="1.3", config_path="./patchless_nnunet/configs", config_name="train")
     @utils.task_wrapper
     def run_system(cfg: DictConfig) -> Tuple[dict, dict]:
         """Trains the model. Can additionally evaluate on a testset, using best/last weights
@@ -56,11 +57,34 @@ class PatchlessnnUnetTrainer(ABC):
         if cfg.get("seed"):
             pl.seed_everything(cfg.seed, workers=True)
 
-        log.info(f"Instantiating datamodule <{cfg.datamodule._target_}>")
-        datamodule: LightningDataModule = hydra.utils.instantiate(cfg.datamodule)
-
         log.info(f"Instantiating model <{cfg.model._target_}>")
         model: LightningModule = hydra.utils.instantiate(cfg.model)
+
+        if cfg.get('estimate_max_tensor_volume', None) and cfg.trainer.get('accelerator') == 'gpu':
+            available_space = torch.cuda.get_device_properties(0).total_memory * cfg.max_gpu_capacity_percentage
+            shape_divisible_by = cfg.datamodule.shape_divisible_by
+
+            # find the largest possible size that fits in vram
+            input_size = torch.Size((1, 640, 480, 4))  # arbitrary input size that fits in model
+            summ = torchinfo.summary(model=model, input_size=input_size, batch_dim=0, verbose=0)
+            total_used_space = summ.total_output_bytes + summ.total_param_bytes + summ.total_input
+
+            total_used_space = [total_used_space]
+            while total_used_space[-1] < available_space:
+                input_size = torch.Size(list(input_size[:-1])+[input_size[-1]+shape_divisible_by[-1]])
+                summ = torchinfo.summary(model=model, input_size=input_size, batch_dim=0, verbose=0)
+                total_used_space += [summ.total_output_bytes + summ.total_param_bytes + summ.total_input]
+
+            # come back to size that fits and calculate total tensor volume
+            input_size = torch.Size(list(input_size[:-1])+[input_size[-1] - shape_divisible_by[-1]])
+            max_tensor_volume = int(input_size.numel())
+            cfg.datamodule["max_tensor_volume"] = max_tensor_volume
+            print(f"Available GPU memory (including capped capacity percentage): {available_space / 1e6:.0f} MB")
+            print(f"Used GPU memory with maxed calculated tensor size: {total_used_space[-2] / 1e6:.0f} MB")
+            print(f"Max tensor volume used in datamodule: {max_tensor_volume}")
+
+        log.info(f"Instantiating datamodule <{cfg.datamodule._target_}>")
+        datamodule: LightningDataModule = hydra.utils.instantiate(cfg.datamodule)
 
         if cfg.get("transfer_training") and cfg.get("ckpt_path"):
             log.info(f"Loading weights from {cfg.ckpt_path}")

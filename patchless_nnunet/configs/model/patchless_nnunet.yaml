@@ -1,8 +1,16 @@
 defaults:
-  - nnunet
+  - net: unet
+  - optimizer: sgd
+  - scheduler: polylr
+  - loss: dice_ce
 
 _target_: patchless_nnunet.models.patchless_nnUnet_module.nnUNetPatchlessLitModule
-name: nnunet_patchless
+
+tta: True
+save_predictions: False
+save_npz: False
+
+name: patchless_nnunet
 
 common_spacing: [0.37, 0.37, 1]
 
