@@ -1,4 +1,4 @@
-_target_: patchless_nnunet.datamodules.patchless_nnUnet_datamodule.PatchlessnnUnetDataModule
+_target_: patchless_nnunet.datamodules.patchless_nnunet_datamodule.PatchlessnnUnetDataModule
 data_dir: ${paths.data_dir}
 num_workers: 12
 pin_memory: True

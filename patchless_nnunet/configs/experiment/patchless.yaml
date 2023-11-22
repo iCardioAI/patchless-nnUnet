@@ -5,13 +5,13 @@ defaults:
   - override /model: patchless_nnunet
   - override /callbacks: patchless_nnunet
   - override /logger: tensorboard
-  - override /trainer: nnunet
-  - override /hydra: nnunet
+  - override /trainer: patchless_nnunet
+  - override /hydra: patchless_nnunet
 
 estimate_max_tensor_volume: True
 max_gpu_capacity_percentage: 0.9
 
-tags: ["${model.name}_${nnUNet_variant}", "Fold${fold}"]
+tags: ["${model.name}"]
 task_name: "patchless"
 train: True
 test: True

@@ -4,7 +4,7 @@ defaults:
   - scheduler: polylr
   - loss: dice_ce
 
-_target_: patchless_nnunet.models.patchless_nnUnet_module.nnUNetPatchlessLitModule
+_target_: patchless_nnunet.models.patchless_nnunet_module.nnUNetPatchlessLitModule
 
 tta: True
 save_predictions: False
