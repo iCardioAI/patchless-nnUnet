@@ -19,8 +19,8 @@ This code base allows you to train a 3D Unet for a multi-classs segmentation tas
 2. Create a virtual environment (Conda is strongly recommended):
    ```bash
    # create conda environment
-   conda create -n ascent python=3.10
-   conda activate ascent
+   conda create -n patchless python=3.10
+   conda activate patchless
    ```
 3. Install [PyTorch](https://pytorch.org/get-started/locally/) according to instructions. Grab the one with GPU for faster training:
    ```bash
@@ -88,7 +88,7 @@ Many options are available through hydra CLI override syntax or through modifica
 
 For example:
 ```bash
-python runner.py experiment=patchless trainer.max_epochs=20
+python runner.py experiment=patchless trainer.max_epochs=20 model.save_predictions=True
 ```
 
 ## Inference
