@@ -149,7 +149,8 @@ class PatchlessnnUnetDataset(Dataset):
         x = int(np.ceil(current_shape[0] / self.shape_divisible_by[0]) * self.shape_divisible_by[0])
         y = int(np.ceil(current_shape[1] / self.shape_divisible_by[1]) * self.shape_divisible_by[1])
         if not self.test:
-            z = int(np.ceil(current_shape[2] / self.shape_divisible_by[2]) * self.shape_divisible_by[2])
+            # use floor to avoid zero padded frames
+            z = int(np.floor(current_shape[2] / self.shape_divisible_by[2]) * self.shape_divisible_by[2])
         else:
             z = current_shape[2]
         return x, y, z
