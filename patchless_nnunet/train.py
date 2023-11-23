@@ -34,7 +34,7 @@ class PatchlessnnUnetTrainer(ABC):
         setup_root()
 
     @staticmethod
-    @hydra.main(version_base="1.3", config_path="./patchless_nnunet/configs", config_name="train")
+    @hydra.main(version_base="1.3", config_path="configs", config_name="train")
     @utils.task_wrapper
     def run_system(cfg: DictConfig) -> Tuple[dict, dict]:
         """Trains the model. Can additionally evaluate on a testset, using best/last weights

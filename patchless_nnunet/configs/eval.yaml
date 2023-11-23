@@ -1,14 +1,14 @@
 # @package _global_
 
 defaults:
-  - datamodule: mnist # choose datamodule with `test_dataloader()` for evaluation
-  - model: mnist
-  - callbacks: default
+  - datamodule: patchless_nnunet # choose datamodule with `test_dataloader()` for evaluation
+  - model: patchless_nnunet
+  - callbacks: patchless_nnunet
   - logger: null
-  - trainer: default
+  - trainer: patchless_nnunet
   - paths: default
   - extras: default
-  - hydra: default
+  - hydra: patchless_nnunet
   - _self_
   - experiment: null
   - optional launcher: null # List custom launcher after trainer/datamodule, so that it can override their configs

@@ -14,7 +14,7 @@ This code base allows you to train a 3D Unet for a multi-classs segmentation tas
    ```bash
    # clone project
    git clone https://github.com/arnaudjudge/patchless-nnUnet
-   cd patchless_nnunet
+   cd patchless-nnUnet
    ```
 2. Create a virtual environment (Conda is strongly recommended):
    ```bash
@@ -82,20 +82,28 @@ The associated files would be:
 
 To train the network, use the following command:
 ```bash
-python runner.py experiment=patchless
+patchless_train experiment=patchless
 ```
 Many options are available through hydra CLI override syntax or through modification/addition of config files.
 
 For example:
 ```bash
-python runner.py experiment=patchless trainer.max_epochs=20 model.save_predictions=True
+patchless_train experiment=patchless trainer.max_epochs=20 model.save_predictions=True
 ```
+
+## Evaluation
+
+To run evaluation of a model, use the following command. Make sure to specify input and output folder as well as model checkpoint to use.
+```bash
+patchless_eval experiment=patchless ckpt_path=<CKPT_PATH>
+```
+
 
 ## Inference
 
 To run inference on a set of new images, use the following command. Make sure to specify input and output folder as well as model checkpoint to use.
 ```bash
-python predictor.py model=patchless_nnunet input_path=<INPUT_PATH> output_path=<OUTPUT_PATH> ckpt_path=<CKPT_PATH>
+patchless_predict model=patchless_nnunet input_path=<INPUT_PATH> output_path=<OUTPUT_PATH> ckpt_path=<CKPT_PATH>
 ```
 
 
