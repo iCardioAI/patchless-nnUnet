@@ -4,6 +4,7 @@ num_workers: 12
 pin_memory: True
 batch_size: 1
 dataset_name: icardio_subset
+csv_file_name: subset.csv
 common_spacing: [0.37, 0.37, 1]
 max_window_len: 4
 max_batch_size: 4

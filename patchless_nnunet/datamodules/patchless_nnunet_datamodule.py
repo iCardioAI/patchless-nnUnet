@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 class PatchlessnnUnetDataset(Dataset):
     def __init__(self,
                  data_path,
+                 csv_file_name='subset.csv',
                  test_frac=0.1,
                  common_spacing=None,
                  max_window_len=None,
@@ -31,7 +32,7 @@ class PatchlessnnUnetDataset(Dataset):
                  *args, **kwargs):
         super().__init__()
         self.data_path = data_path
-        csv_file = self.data_path + '/subset.csv'
+        csv_file = self.data_path + '/' + csv_file_name
         self.df = pd.read_csv(csv_file, index_col=0)
         self.df = self.df[self.df['valid_segmentation'] == True]
 
@@ -161,6 +162,7 @@ class PatchlessnnUnetDataModule(LightningDataModule):
             self,
             data_dir: str = "data/",
             dataset_name: str = "",
+            csv_file_name: str = "subset.csv",
             batch_size: int = 1,
             common_spacing: tuple[float, ...] = None,
             max_window_len: int = None,
@@ -216,6 +218,7 @@ class PatchlessnnUnetDataModule(LightningDataModule):
         """
         if stage == "fit" or stage is None:
             train_set_full = PatchlessnnUnetDataset(self.hparams.data_dir + '/' + self.hparams.dataset_name,
+                                                    csv_file_name=self.hparams.csv_file_name,
                                                     common_spacing=self.hparams.common_spacing,
                                                     max_window_len=self.hparams.max_window_len,
                                                     use_dataset_fraction=self.hparams.use_dataset_fraction,
@@ -230,6 +233,7 @@ class PatchlessnnUnetDataModule(LightningDataModule):
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
             self.data_test = PatchlessnnUnetDataset(self.hparams.data_dir + '/' + self.hparams.dataset_name,
+                                                    csv_file_name=self.hparams.csv_file_name,
                                                     test=True,
                                                     common_spacing=self.hparams.common_spacing,
                                                     shape_divisible_by=list(self.hparams.shape_divisible_by)
