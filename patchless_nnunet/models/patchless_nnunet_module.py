@@ -2,7 +2,7 @@ import os
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union, Dict, List
 
 import numpy as np
 import SimpleITK as sitk
@@ -10,7 +10,10 @@ import torch
 import torch.nn as nn
 from einops.einops import rearrange
 from lightning import LightningModule
+from matplotlib import pyplot as plt
+
 from monai.data import MetaTensor
+from lightning.pytorch.loggers import TensorBoardLogger, CometLogger
 from torch import Tensor
 from torch.nn.functional import pad
 from torchvision.transforms.functional import adjust_contrast, rotate
@@ -175,6 +178,19 @@ class nnUNetPatchlessLitModule(LightningModule):
 
         self.validation_step_outputs.append({"val/loss": loss})
 
+        if batch_idx == 0:
+            self.log_images(
+                title='sample',
+                num_images=1,
+                num_timesteps=min(img.shape[-1], 4),
+                axes_content={
+                    'Image': img.squeeze(1).cpu().detach().numpy(),
+                    'Prediction': pred_seg.cpu().detach().numpy(),
+                    'Stack': np.stack((img.squeeze(1).cpu().detach().numpy(),
+                                       pred_seg.cpu().detach().numpy())),
+                }
+            )
+
         return {"val/loss": loss}
 
     def on_validation_epoch_end(self):  # noqa: D102
@@ -307,6 +323,19 @@ class nnUNetPatchlessLitModule(LightningModule):
             batch_size=self.trainer.datamodule.hparams.batch_size,
             sync_dist=True,
         )
+
+        self.log_images(
+            title=f'test_{batch_idx}',
+            num_images=1,
+            num_timesteps=min(img.shape[-1], 4),
+            axes_content={
+                'Image': img.squeeze(1).cpu().detach().numpy(),
+                'Prediction': pred_seg.cpu().detach().numpy(),
+                'Stack': np.stack((img.squeeze(1).cpu().detach().numpy(),
+                                   pred_seg.cpu().detach().numpy())),
+            }
+        )
+
 
         if self.hparams.save_predictions:
             preds = preds.squeeze(0).cpu().detach().numpy()
@@ -641,6 +670,47 @@ class nnUNetPatchlessLitModule(LightningModule):
         if self.val_eval_criterion_MA > self.best_val_eval_criterion_MA:
             self.best_val_eval_criterion_MA = self.val_eval_criterion_MA
 
+    def log_images(
+        self, title: str, num_images: int, num_timesteps: int, axes_content: Dict[str, np.ndarray], info: Optional[List[str]] = None
+    ):
+        """Log images to Logger if it is a TensorBoardLogger or CometLogger.
+        Args:
+            title: Name of the figure.
+            num_images: Number of images to log.
+            num_timesteps: Number of timesteps per image.
+            axes_content: Mapping of axis name and image.
+            info: Additional info to be appended to title for each image.
+        """
+        if self.trainer.global_rank == 0:  # only log image to global rank 0 for multi-gpu training
+            for i in range(num_images):
+                fig, axes = plt.subplots(num_timesteps, len(axes_content.keys()), squeeze=False)
+                if info is not None:
+                    name = f"{title}_{info[i]}_{i}"
+                else:
+                    name = f"{title}_{i}"
+                plt.suptitle(name)
+
+                for j, (ax_title, imgs) in enumerate(axes_content.items()):
+                    for k in range(num_timesteps):
+                        if len(imgs.shape) == 4:
+                            axes[k, j].imshow(imgs[i, ..., k].squeeze().T)
+                        if len(imgs.shape) == 5:  # blend
+                            axes[k, j].imshow(imgs[0, i, ..., k].squeeze().T)
+                            axes[k, j].imshow(imgs[1, i, ..., k].squeeze().T, alpha=0.3)
+                        if k == 0:
+                            axes[0, j].set_title(ax_title)
+                        axes[k, j].tick_params(left=False,
+                                               bottom=False,
+                                               labelleft=False,
+                                               labelbottom=False)
+                plt.subplots_adjust(wspace=0, hspace=0)
+
+                if isinstance(self.trainer.logger, TensorBoardLogger):
+                    self.trainer.logger.experiment.add_figure("{}_{}".format(title, i), fig, self.current_epoch)
+                if isinstance(self.trainer.logger, CometLogger):
+                    self.trainer.logger.experiment.log_figure("{}_{}".format(title, i), fig, step=self.current_epoch)
+
+                plt.close()
 
 if __name__ == "__main__":
     from typing import List
