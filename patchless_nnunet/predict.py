@@ -152,10 +152,10 @@ class PatchlessnnUnetPredictor:
         }
 
         preprocessed = PatchlessPreprocessd(keys='image', common_spacing=cfg.model.common_spacing)
-        tranforms = transforms.compose.Compose([preprocessed, ToTensord(keys="image", track_meta=True)])
+        tf = transforms.compose.Compose([preprocessed, ToTensord(keys="image", track_meta=True)])
 
         numpy_arr_data = PatchlessnnUnetPredictor.get_array_dataset(cfg.input_folder)
-        dataset = ArrayDataset(img=numpy_arr_data, img_transform=tranforms)
+        dataset = ArrayDataset(img=numpy_arr_data, img_transform=tf)
 
         dataloader = DataLoader(
             dataset=dataset,
