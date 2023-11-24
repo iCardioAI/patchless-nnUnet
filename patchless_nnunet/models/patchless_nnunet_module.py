@@ -16,6 +16,7 @@ from monai.data import MetaTensor
 from lightning.pytorch.loggers import TensorBoardLogger, CometLogger
 from torch import Tensor
 from torch.nn.functional import pad
+from torch.optim.lr_scheduler import _LRScheduler
 from torchvision.transforms.functional import adjust_contrast, rotate
 
 from patchless_nnunet.utils.inferers import SlidingWindowInferer
@@ -38,6 +39,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         loss: torch.nn.Module,
         scheduler: torch.optim.lr_scheduler._LRScheduler,
+        optimizer_monitor: str = None,
         tta: bool = True,
         sliding_window_len: int = 24,
         sliding_window_overlap: float = 0.5,
@@ -426,17 +428,19 @@ class nnUNetPatchlessLitModule(LightningModule):
 
         return final_preds
 
-    def configure_optimizers(self) -> dict[Literal["optimizer", "lr_scheduler"], Any]:
+    def configure_optimizers(self) -> dict[Literal["optimizer", "lr_scheduler", "monitor"], Any]:
         """Configures optimizers/LR schedulers.
 
         Returns:
             A dict with an `optimizer` key, and an optional `lr_scheduler` if a scheduler is used.
         """
         configured_optimizer = {"optimizer": self.hparams.optimizer(params=self.parameters())}
-        if self.hparams.scheduler is not None:
+        if type(self.hparams.scheduler) is _LRScheduler:
             configured_optimizer["lr_scheduler"] = self.hparams.scheduler(
                 optimizer=configured_optimizer["optimizer"]
             )
+        if self.hparams.optimizer_monitor is not None:
+            configured_optimizer['monitor'] = 'val/mean_dice'
         return configured_optimizer
 
     def on_save_checkpoint(self, checkpoint: dict) -> None:

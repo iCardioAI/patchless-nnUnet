@@ -6,6 +6,8 @@ defaults:
 
 _target_: patchless_nnunet.models.patchless_nnunet_module.nnUNetPatchlessLitModule
 
+optimizer_monitor: val/mean_dice
+
 tta: True
 save_predictions: False
 save_npz: False
