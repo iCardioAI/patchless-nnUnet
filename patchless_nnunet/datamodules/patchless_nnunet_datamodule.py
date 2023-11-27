@@ -11,10 +11,6 @@ from lightning import LightningDataModule
 from monai.data import DataLoader
 from torch.utils.data import Dataset, random_split
 
-import matplotlib
-matplotlib.use('TkAgg')
-import matplotlib.pyplot as plt
-
 
 class PatchlessnnUnetDataset(Dataset):
     def __init__(self,
@@ -275,6 +271,9 @@ class PatchlessnnUnetDataModule(LightningDataModule):
 
 if __name__ == "__main__":
     import pyrootutils
+    import matplotlib
+    matplotlib.use('TkAgg')
+    import matplotlib.pyplot as plt
 
     root = pyrootutils.setup_root(__file__, pythonpath=True)
 
