@@ -47,7 +47,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         common_spacing: [float] = None,
         save_predictions: bool = True,
         save_npz: bool = False,
-        name: str = "Patchless_nnUNet",
+        name: str = "patchless_nnunet",
     ):
         """Saves the system's configuration in `hparams`. Initialize variables for training and
         validation loop.
@@ -338,17 +338,13 @@ class nnUNetPatchlessLitModule(LightningModule):
             }
         )
 
-
         if self.hparams.save_predictions:
             preds = preds.squeeze(0).cpu().detach().numpy()
             original_shape = properties_dict.get("original_shape").cpu().detach().numpy()[0]
             if len(preds.shape[1:]) == len(original_shape) - 1:
                 preds = preds[..., None]
 
-            if self.trainer.datamodule.hparams.test_splits:
-                save_dir = os.path.join(self.trainer.default_root_dir, "testing_raw")
-            else:
-                save_dir = os.path.join(self.trainer.default_root_dir, "validation_raw")
+            save_dir = os.path.join(self.trainer.default_root_dir, "testing_raw")
 
             fname = properties_dict.get("case_identifier")[0]
             spacing = properties_dict.get("original_spacing").cpu().detach().numpy()[0]
