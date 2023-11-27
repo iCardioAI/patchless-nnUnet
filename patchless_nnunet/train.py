@@ -72,7 +72,11 @@ class PatchlessnnUnetTrainer(ABC):
             total_used_space = [total_used_space]
             while total_used_space[-1] < available_space:
                 input_size = torch.Size(list(input_size[:-1])+[input_size[-1]+shape_divisible_by[-1]])
-                summ = torchinfo.summary(model=model, input_size=input_size, batch_dim=0, verbose=0)
+                # check if this shape fits in memory, use try catch to avoid excessive memory in GPU to end execution
+                try:
+                    summ = torchinfo.summary(model=model, input_size=input_size, batch_dim=0, verbose=0)
+                except:
+                    break
                 total_used_space += [summ.total_output_bytes + summ.total_param_bytes + summ.total_input]
 
             # come back to size that fits and calculate total tensor volume
