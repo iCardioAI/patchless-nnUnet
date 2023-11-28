@@ -1,0 +1,13 @@
+defaults:
+  - optimizer: adam
+  - scheduler: none
+  - loss: mse
+
+_target_: patchless_nnunet.models.quality_regression_resnet_module.QualityRegressionLitModule
+
+optimizer_monitor: val/loss
+
+name: QReg
+
+common_spacing: [0.37, 0.37, 1]
+

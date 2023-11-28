@@ -1,0 +1,24 @@
+# @package _global_
+
+defaults:
+  - override /datamodule: quality_regression
+  - override /model: quality_regression
+  - override /callbacks: none
+  - override /logger: tensorboard
+  - override /trainer: default
+  - override /hydra: default
+
+estimate_max_tensor_volume: True
+max_gpu_capacity_percentage: 0.75
+
+tags: ["${model.name}"]
+task_name: "QReg"
+train: True
+test: True
+best_model: True
+logger:
+  tensorboard:
+    name: "${model.name}"
+
+trainer:
+  accelerator: gpu

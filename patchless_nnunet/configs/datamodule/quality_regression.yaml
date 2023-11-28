@@ -1,0 +1,10 @@
+_target_: patchless_nnunet.datamodules.quality_regression_datamodule.QualityRegressionDataModule
+data_dir: /data/icardio #${paths.data_dir}
+num_workers: 12
+pin_memory: True
+batch_size: 8
+dataset_name: processed
+csv_file_name: processed.csv
+common_spacing: [0.37, 0.37, 1]
+max_tensor_volume: 5000000
+shape_divisible_by: [32, 32, 4]
