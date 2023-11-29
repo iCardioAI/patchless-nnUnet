@@ -15,6 +15,7 @@ save_npz: False
 name: patchless_nnunet
 
 common_spacing: [0.37, 0.37, 1]
+sliding_window_len: 4
 
 net:
   in_channels: 1

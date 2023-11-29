@@ -41,7 +41,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         scheduler: torch.optim.lr_scheduler._LRScheduler,
         optimizer_monitor: str = None,
         tta: bool = True,
-        sliding_window_len: int = 24,
+        sliding_window_len: int = 4,
         sliding_window_overlap: float = 0.5,
         sliding_window_importance_map: bool = "gaussian",
         common_spacing: [float] = None,
@@ -391,6 +391,11 @@ class nnUNetPatchlessLitModule(LightningModule):
             mode=self.hparams.sliding_window_importance_map,
             cache_roi_weight_map=True,
         )
+
+        print(f"\n\nPredict step parameters: \n"
+              f"    - Sliding window len: {self.hparams.sliding_window_len}\n"
+              f"    - Sliding window overlap: {self.hparams.sliding_window_overlap}\n"
+              f"    - Sliding window importance map: {self.hparams.sliding_window_importance_map}\n")
 
     def predict_step(self, batch: dict[str, Tensor], batch_idx: int):  # noqa: D102
         img, properties_dict = batch["image"], batch["image_meta_dict"]
