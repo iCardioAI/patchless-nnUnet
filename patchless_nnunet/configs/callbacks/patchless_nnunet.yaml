@@ -17,7 +17,7 @@ model_checkpoint:
 early_stopping:
   _target_: lightning.pytorch.callbacks.EarlyStopping
   monitor: val/mean_dice
-  patience: 15
+  patience: 25
   mode: "max"
   verbose: True
 
