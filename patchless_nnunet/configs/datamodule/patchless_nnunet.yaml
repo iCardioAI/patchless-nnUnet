@@ -2,11 +2,13 @@ _target_: patchless_nnunet.datamodules.patchless_nnunet_datamodule.PatchlessnnUn
 data_dir: ${paths.data_dir}
 num_workers: 12
 pin_memory: True
-batch_size: 1
+batch_size: 1 # must be 1
 dataset_name: icardio_subset
 csv_file_name: subset.csv
-common_spacing: [0.37, 0.37, 1]
-max_window_len: 4
-max_batch_size: 4
-max_tensor_volume: 5000000
+splits_column: split_0 # column for train-test-val split, will be created if doesn't yet exist
+
+common_spacing: [0.37, 0.37, 1] # approx average spacing in dataset
+max_window_len: 4 # optimal for time contistency and fast movements
+max_batch_size: null
+max_tensor_volume: 5000000 # alright for 24gb gpu
 shape_divisible_by: [32, 32, 4]

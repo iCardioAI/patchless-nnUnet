@@ -9,28 +9,34 @@ import torch
 import torchio as tio
 from lightning import LightningDataModule
 from monai.data import DataLoader
-from torch.utils.data import Dataset, random_split
+from torch.utils.data import Dataset
+from sklearn.model_selection import train_test_split
 
+
+def get_img_subpath(row):
+    """
+    Format string for path of image in file structure
+    :param row: dataframe row with all columns filled in
+    :return: string containing path to image file
+    """
+    return f"{row['study']}/{row['view'].lower()}/{row['dicom_uuid']}_0000.nii.gz"
 
 class PatchlessnnUnetDataset(Dataset):
     def __init__(self,
+                 df,
                  data_path,
-                 csv_file_name='subset.csv',
-                 test_frac=0.1,
                  common_spacing=None,
                  max_window_len=None,
                  use_dataset_fraction=1.0,
                  max_batch_size=None,
                  max_tensor_volume=5000000,
                  shape_divisible_by=(32, 32, 4),
-                 seed=0,
                  test=False,
                  *args, **kwargs):
         super().__init__()
         self.data_path = data_path
-        csv_file = self.data_path + '/' + csv_file_name
-        self.df = pd.read_csv(csv_file, index_col=0)
-        self.df = self.df[self.df['valid_segmentation'] == True]
+        self.df = df
+        self.test = test
 
         self.max_tensor_volume = max_tensor_volume
         self.shape_divisible_by = shape_divisible_by
@@ -40,34 +46,20 @@ class PatchlessnnUnetDataset(Dataset):
             print("WARNING: max_batch_size set to a large number, "
                   "behavior is set to use largest batch possible "
                   "if max_batch_size is larger than max calculated length")
+        self.common_spacing = common_spacing
 
-        # split according to test_frac
-        self.test = test
-        test_len = int(test_frac * len(self.df))
-        train_val_len = len(self.df) - test_len
-        idx_train_val, idx_test = random_split(range(len(self.df)), [train_val_len, test_len])
-        if self.test:
-            self.df = self.df.iloc[idx_test.indices]
-            print(f"TEST SET {self.df['dicom_uuid']}")
-        else:
-            self.df = self.df.iloc[idx_train_val.indices]
-            if use_dataset_fraction < 1.0:
+        if use_dataset_fraction:
+            if 0 < use_dataset_fraction < 1.0:
                 self.df = self.df.sample(frac=use_dataset_fraction)
-
-        print(f"Test step: {test} , len of dataset {len(self.df)}")
-
-        if common_spacing is None:
-            self.calculate_common_spacing()
-        else:
-            self.common_spacing = np.asarray(common_spacing)
-            print(f"USING PRESET COMMON SPACING: {self.common_spacing}")
+            else:
+                print(f"Invalid dataset fraction: {use_dataset_fraction}, fraction will be ignored!")
 
     def __len__(self):
         return len(self.df.index)
 
     def __getitem__(self, idx):
         # Get paths and open images
-        sub_path = self.get_img_subpath(self.df.iloc[idx])
+        sub_path = get_img_subpath(self.df.iloc[idx])
         img_nifti = nib.load(self.data_path + '/img/' + sub_path)
         img = img_nifti.get_fdata() / 255
         mask = nib.load(self.data_path + '/segmentation/' + sub_path.replace("_0000", "")).get_fdata()
@@ -123,23 +115,6 @@ class PatchlessnnUnetDataset(Dataset):
                                     }
                 }
 
-    def get_img_subpath(self, row):
-        return f"{row['study']}/{row['view'].lower()}/{row['dicom_uuid']}_0000.nii.gz"
-
-    def calculate_common_spacing(self, num_samples=100):
-        spacings = np.zeros(3)
-        idx = self.df.reset_index().index.to_list()
-        shuffle(idx)
-        idx = idx[:num_samples]
-
-        for i in idx:
-            sub_path = self.get_img_subpath(self.df.iloc[i])
-            img_nifti = nib.load(self.data_path + '/img/' + sub_path)
-            spacings += img_nifti.header['pixdim'][1:4]
-
-        self.common_spacing = spacings / len(idx)
-        print(f"ESTIMATED COMMON AVERAGE SPACING: {self.common_spacing}")
-
     def get_desired_size(self, current_shape):
         # get desired closest divisible bigger shape
         x = int(np.ceil(current_shape[0] / self.shape_divisible_by[0]) * self.shape_divisible_by[0])
@@ -160,7 +135,9 @@ class PatchlessnnUnetDataModule(LightningDataModule):
             data_dir: str = "data/",
             dataset_name: str = "",
             csv_file_name: str = "subset.csv",
+            splits_column: str = None,
             batch_size: int = 1,
+            seed: int = 0,
             common_spacing: tuple[float, ...] = None,
             max_window_len: int = None,
             max_batch_size: int = None,
@@ -186,6 +163,10 @@ class PatchlessnnUnetDataModule(LightningDataModule):
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
+
+        self.data_path = self.hparams.data_dir + '/' + self.hparams.dataset_name
+        # open dataframe for dataset
+        self.df = pd.read_csv(self.data_path + '/' + self.hparams.csv_file_name, index_col=0)
 
         self.data_train: Optional[torch.utils.Dataset] = None
         self.data_val: Optional[torch.utils.Dataset] = None
@@ -213,28 +194,71 @@ class PatchlessnnUnetDataModule(LightningDataModule):
         This method is called by lightning with both `trainer.fit()` and `trainer.test()`, so be
         careful not to execute things like random split twice!
         """
-        if stage == "fit" or stage is None:
-            train_set_full = PatchlessnnUnetDataset(self.hparams.data_dir + '/' + self.hparams.dataset_name,
-                                                    csv_file_name=self.hparams.csv_file_name,
-                                                    common_spacing=self.hparams.common_spacing,
-                                                    max_window_len=self.hparams.max_window_len,
-                                                    use_dataset_fraction=self.hparams.use_dataset_fraction,
-                                                    max_batch_size=self.hparams.max_batch_size,
-                                                    max_tensor_volume=self.hparams.max_tensor_volume,
-                                                    shape_divisible_by=list(self.hparams.shape_divisible_by)
-                                                    )
-            train_set_size = int(len(train_set_full) * 0.9)
-            valid_set_size = len(train_set_full) - train_set_size
-            self.data_train, self.data_val = random_split(train_set_full, [train_set_size, valid_set_size])
+        # keep only valid entries in dataframe
+        self.df = self.df[self.df['valid_segmentation'] == True]
 
+        # Calculate common spacing if not given
+        if self.hparams.common_spacing is None:
+            max_num = 100
+            common_spacing = self.calculate_common_spacing(num_samples=max_num)
+            print(f"ESTIMATED COMMON AVERAGE SPACING WITH {max_num} SAMPLES: {common_spacing}")
+        else:
+            common_spacing = np.asarray(self.hparams.common_spacing)
+
+        # Do splits
+        if self.hparams.splits_column and self.hparams.splits_column in self.df.columns:
+            # splits are already defined in csv file
+            print(f"Using split from column: {self.hparams.splits_column}")
+            self.train_idx = self.df.index[self.df[self.hparams.splits_column] == 'train'].tolist()
+            self.val_idx = self.df.index[self.df[self.hparams.splits_column] == 'val'].tolist()
+            self.test_idx = self.df.index[self.df[self.hparams.splits_column] == 'test'].tolist()
+        else:
+            # create new splits, save if column name is given
+            print(f"Creating new splits!")
+            self.train_idx, val_and_test_idx = train_test_split(self.df.index.to_list(),
+                                                                train_size=0.8,
+                                                                random_state=self.hparams.seed)
+            self.val_idx, self.test_idx = train_test_split(val_and_test_idx,
+                                                           test_size=0.5,
+                                                           random_state=self.hparams.seed)
+            if self.hparams.splits_column:
+                print(f"Saving new split to column: {self.hparams.splits_column}")
+                self.df.loc[self.train_idx, self.hparams.splits_column] = 'train'
+                self.df.loc[self.val_idx, self.hparams.splits_column] = 'val'
+                self.df.loc[self.test_idx, self.hparams.splits_column] = 'test'
+                self.df.to_csv(self.data_path + '/' + self.hparams.csv_file_name)
+
+        if stage == "fit" or stage is None:
+            self.data_train = PatchlessnnUnetDataset(self.df.loc[self.train_idx],
+                                                     data_path=self.data_path,
+                                                     common_spacing=common_spacing,
+                                                     max_window_len=self.hparams.max_window_len,
+                                                     use_dataset_fraction=self.hparams.use_dataset_fraction,
+                                                     max_batch_size=self.hparams.max_batch_size,
+                                                     max_tensor_volume=self.hparams.max_tensor_volume,
+                                                     shape_divisible_by=list(self.hparams.shape_divisible_by)
+                                                     )
+            print(f"LEN OF TRAIN SET: {len(self.data_train)}")
+            self.data_val = PatchlessnnUnetDataset(self.df.loc[self.val_idx],
+                                                   data_path=self.data_path,
+                                                   common_spacing=common_spacing,
+                                                   max_window_len=self.hparams.max_window_len,
+                                                   use_dataset_fraction=self.hparams.use_dataset_fraction,
+                                                   max_batch_size=self.hparams.max_batch_size,
+                                                   max_tensor_volume=self.hparams.max_tensor_volume,
+                                                   shape_divisible_by=list(self.hparams.shape_divisible_by)
+                                                   )
+            print(f"LEN OF VAL SET: {len(self.data_val)}")
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
-            self.data_test = PatchlessnnUnetDataset(self.hparams.data_dir + '/' + self.hparams.dataset_name,
-                                                    csv_file_name=self.hparams.csv_file_name,
+            self.data_test = PatchlessnnUnetDataset(self.df.loc[self.test_idx],
+                                                    data_path=self.data_path,
                                                     test=True,
-                                                    common_spacing=self.hparams.common_spacing,
-                                                    shape_divisible_by=list(self.hparams.shape_divisible_by)
+                                                    common_spacing=common_spacing,
+                                                    shape_divisible_by=list(self.hparams.shape_divisible_by),
+                                                    use_dataset_fraction=self.hparams.use_dataset_fraction
                                                     )
+            print(f"LEN OF TEST SET: {len(self.data_test)}")
 
     def train_dataloader(self) -> DataLoader:  # noqa: D102
         return DataLoader(
@@ -257,9 +281,6 @@ class PatchlessnnUnetDataModule(LightningDataModule):
         )
 
     def test_dataloader(self) -> DataLoader:  # noqa: D102
-        # We use a batch size of 1 for testing as the images have different shapes and we can't
-        # stack them
-
         return DataLoader(
             dataset=self.data_test,
             batch_size=1,
@@ -267,6 +288,19 @@ class PatchlessnnUnetDataModule(LightningDataModule):
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
         )
+
+    def calculate_common_spacing(self, num_samples=100):
+        spacings = np.zeros(3)
+        idx = self.df.reset_index().index.to_list()
+        shuffle(idx)
+        idx = idx[:max(num_samples, len(idx))]
+
+        for i in idx:
+            sub_path = get_img_subpath(self.df.iloc[i])
+            img_nifti = nib.load(self.data_path + '/img/' + sub_path)
+            spacings += img_nifti.header['pixdim'][1:4]
+
+        return spacings / len(idx)
 
 
 if __name__ == "__main__":
@@ -280,12 +314,14 @@ if __name__ == "__main__":
     dl = PatchlessnnUnetDataModule((root / 'data/').as_posix(),
                                    common_spacing=(0.37, 0.37, 1.0),
                                    max_window_len=4,
-                                   max_batch_size=2,
+                                   max_batch_size=None,
                                    dataset_name='icardio_subset',
+                                   splits_column='splits_0',
                                    num_workers=1,
-                                   batch_size=1)
+                                   batch_size=1,
+                                   use_dataset_fraction=0.1)
     dl.setup()
-    for batch in iter(dl.train_dataloader()):
+    for batch in iter(dl.val_dataloader()):
         bimg = batch['image'].squeeze(0)
         blabel = batch['label'].squeeze(0)
         print(bimg.shape)
