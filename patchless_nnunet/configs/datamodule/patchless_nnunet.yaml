@@ -6,6 +6,7 @@ batch_size: 1 # must be 1
 dataset_name: icardio_subset
 csv_file_name: subset.csv
 splits_column: split_0 # column for train-test-val split, will be created if doesn't yet exist
+seed: ${seed}
 
 common_spacing: [0.37, 0.37, 1] # approx average spacing in dataset
 max_window_len: 4 # optimal for time contistency and fast movements
