@@ -125,12 +125,13 @@ class QualityRegressionLitModule(LightningModule):
         if batch_idx == 0:
             self.log_images(
                 title='sample',
-                num_images=3,
+                num_images=len(label),
                 num_timesteps=1,
                 axes_content={
                     'Image': img.squeeze(1).cpu().detach().numpy(),
                 },
-                info=[f"{pred.cpu().detach().numpy().squeeze(1)[i]:.4f} - {label[i]}" for i in range(3)]
+                info=[f"Pred: {pred.cpu().detach().numpy().squeeze(1)[i]:.4f} -- Label: {label[i]:.4f}"
+                      for i in range(len(label))]
             )
 
         self.log(
@@ -162,7 +163,8 @@ class QualityRegressionLitModule(LightningModule):
             axes_content={
                 'Image': img.squeeze(1).cpu().detach().numpy(),
             },
-            info=[f"Pred: {pred.cpu().detach().numpy().squeeze(1)[i]:.4f} -- Label: {label[i]:.4f}" for i in range(len(label))]
+            info=[f"Pred: {pred.cpu().detach().numpy().squeeze(1)[i]:.4f} -- Label: {label[i]:.4f}"
+                  for i in range(len(label))]
         )
 
         self.log(
