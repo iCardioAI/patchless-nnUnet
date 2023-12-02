@@ -79,6 +79,9 @@ class PatchlessnnUnetTrainer(ABC):
                     break
                 total_used_space += [summ.total_output_bytes + summ.total_param_bytes + summ.total_input]
 
+            # empty cache since it may be full after these operations
+            torch.cuda.empty_cache()
+
             # come back to size that fits and calculate total tensor volume
             input_size = torch.Size(list(input_size[:-1])+[input_size[-1] - shape_divisible_by[-1]])
             max_tensor_volume = int(input_size.numel())
