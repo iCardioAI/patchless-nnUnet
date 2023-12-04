@@ -1,3 +1,4 @@
+import functools
 import os
 import time
 from collections import OrderedDict
@@ -436,7 +437,7 @@ class nnUNetPatchlessLitModule(LightningModule):
             A dict with an `optimizer` key, and an optional `lr_scheduler` if a scheduler is used.
         """
         configured_optimizer = {"optimizer": self.hparams.optimizer(params=self.parameters())}
-        if type(self.hparams.scheduler) is _LRScheduler:
+        if type(self.hparams.scheduler) in [_LRScheduler, functools.partial]: #, partial]:
             configured_optimizer["lr_scheduler"] = self.hparams.scheduler(
                 optimizer=configured_optimizer["optimizer"]
             )
