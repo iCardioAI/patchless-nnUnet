@@ -1,5 +1,9 @@
+import builtins
+import math
+import operator
 from abc import ABC
-from typing import List, Tuple
+from pathlib import Path
+from typing import List, Tuple, Any
 
 import hydra
 import lightning as pl
@@ -7,7 +11,7 @@ import torch
 import torchinfo
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import CometLogger, Logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from patchless_nnunet import setup_root, utils
 
@@ -32,6 +36,23 @@ class PatchlessnnUnetTrainer(ABC):
         # Load environment variables from `.env` file if it exists
         # Load before hydra main to allow for setting environment variables with ${oc.env:ENV_NAME}
         setup_root()
+
+        PatchlessnnUnetTrainer.register_omegaconf_resolvers()
+
+    @staticmethod
+    def register_omegaconf_resolvers():
+        def _cast_op(op, x, y, type_of: str = None) -> Any:
+            res = op(x, y)
+            if type_of is not None:
+                res = getattr(builtins, type_of)(res)
+            return res
+
+        OmegaConf.register_new_resolver("get_folder_memory_gb",
+                                        lambda path: math.ceil(sum(f.stat().st_size
+                                                                   for f in Path(path).rglob('*')
+                                                                   if f.is_file()) / (1024*1024*1024)))
+        OmegaConf.register_new_resolver("op.mul_ceil", lambda x, y, type_of=None: math.ceil(_cast_op(operator.mul, x, y,
+                                                                                            type_of=type_of)))
 
     @staticmethod
     @hydra.main(version_base="1.3", config_path="configs", config_name="train")

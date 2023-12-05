@@ -3,4 +3,4 @@ defaults:
 
 cpus_per_task: 12
 gpus_per_node: 1
-mem_gb: 64
+mem_gb: ${op.mul_ceil:${get_folder_memory_gb:${paths.data_dir}}, 1.5}
