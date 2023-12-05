@@ -9,7 +9,7 @@ defaults:
   - override /hydra: patchless_nnunet
 
 estimate_max_tensor_volume: True
-max_gpu_capacity_percentage: 0.8
+max_gpu_capacity_percentage: 0.7
 
 tags: ["${model.name}"]
 task_name: "patchless"

@@ -430,14 +430,15 @@ class nnUNetPatchlessLitModule(LightningModule):
 
         return final_preds
 
-    def configure_optimizers(self) -> dict[Literal["optimizer", "lr_scheduler", "monitor"], Any]:
+    def configure_optimizers(self) -> dict[str, str | Any]:
         """Configures optimizers/LR schedulers.
 
         Returns:
-            A dict with an `optimizer` key, and an optional `lr_scheduler` if a scheduler is used.
+            A dict with an `optimizer` key, an optional `lr_scheduler` if a scheduler is used and
+            a metric to monitor (for some schedulers).
         """
         configured_optimizer = {"optimizer": self.hparams.optimizer(params=self.parameters())}
-        if type(self.hparams.scheduler) in [_LRScheduler, functools.partial]: #, partial]:
+        if type(self.hparams.scheduler) in [_LRScheduler, functools.partial]:
             configured_optimizer["lr_scheduler"] = self.hparams.scheduler(
                 optimizer=configured_optimizer["optimizer"]
             )
@@ -486,7 +487,7 @@ class nnUNetPatchlessLitModule(LightningModule):
     def predict(
         self, image: Union[Tensor, MetaTensor], apply_softmax: bool = True
     ) -> Union[Tensor, MetaTensor]:
-        """Predict 2D/3D images with sliding window inference.
+        """Predict 3D images with sliding window inference.
 
         Args:
             image: Image to predict.
@@ -717,6 +718,7 @@ class nnUNetPatchlessLitModule(LightningModule):
                     self.trainer.logger.experiment.log_figure("{}_{}".format(title, i), fig, step=self.current_epoch)
 
                 plt.close()
+
 
 if __name__ == "__main__":
     from typing import List
