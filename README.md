@@ -103,7 +103,7 @@ patchless_eval experiment=patchless ckpt_path=<CKPT_PATH>
 
 To run inference on a set of new images, use the following command. Make sure to specify input and output folder as well as model checkpoint to use.
 ```bash
-patchless_predict model=patchless_nnunet input_path=<INPUT_PATH> output_path=<OUTPUT_PATH> ckpt_path=<CKPT_PATH>
+patchless_predict model=patchless_nnunet input_folder=<INPUT_PATH> output_folder=<OUTPUT_PATH> ckpt_path=<CKPT_PATH>
 ```
 
 
