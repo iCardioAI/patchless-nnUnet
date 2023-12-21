@@ -94,22 +94,32 @@ class PatchlessnnUnetPredictor:
         setup_root()
 
     @staticmethod
+    def load_and_prepare_nifti_img(img_path: Path):
+        nifti_img = nib.load(img_path)
+
+        data = np.expand_dims(nifti_img.get_fdata(), 0)
+        hdr = nifti_img.header
+        aff = nifti_img.affine
+
+        meta = {"filename_or_obj": img_path.stem.split('.')[0].strip("_0000"),
+                "pixdim": hdr['pixdim'],
+                "original_affine": aff}
+        return {'image': MetaTensor(torch.tensor(data, dtype=torch.float32), meta=meta)}
+
+    @staticmethod
     def get_array_dataset(input_path):
         tensor_list = []
         # find all nifti files in input_path
         # open and get relevant information
         # add to list of data
-        for nifti_file_p in Path(input_path).rglob('*.nii.gz'):
-            nifti_img = nib.load(nifti_file_p)
-
-            data = np.expand_dims(nifti_img.get_fdata(), 0)
-            hdr = nifti_img.header
-            aff = nifti_img.affine
-
-            meta = {"filename_or_obj": nifti_file_p.stem.split('.')[0].strip("_0000"),
-                    "pixdim": hdr['pixdim'],
-                    "original_affine": aff}
-            tensor_list += [{'image': MetaTensor(torch.tensor(data, dtype=torch.float32), meta=meta)}]
+        input_path = Path(input_path)
+        if input_path.is_file():
+            log.info(f"Predicting on file: {input_path}")
+            tensor_list += [PatchlessnnUnetPredictor.load_and_prepare_nifti_img(input_path)]
+        else:
+            log.info(f"Predicting on file list found recursively in folder: {input_path}")
+            for nifti_file_p in input_path.rglob('*.nii.gz'):
+                tensor_list += [PatchlessnnUnetPredictor.load_and_prepare_nifti_img(nifti_file_p)]
         return tensor_list
 
     @staticmethod
