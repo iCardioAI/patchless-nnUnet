@@ -13,12 +13,12 @@ def check_file(in_tuple):
     # check for img
     img_path = Path(data_path) / 'img' / r['study'] / r['view'].lower() / (r['dicom_uuid'] + "_0000.nii.gz")
     if not img_path.is_file():
-        return False, r['dicom_uuid']
+        return False, img_path
 
     # check for img
     seg_path = Path(data_path) / 'segmentation' / r['study'] / r['view'].lower() / (r['dicom_uuid'] + ".nii.gz")
     if not seg_path.is_file():
-        return False, r['dicom_uuid']
+        return False, seg_path
     return True, r['dicom_uuid']
 
 
@@ -33,7 +33,7 @@ def check_files(cfg: DictConfig):
     with multiprocessing.Pool() as pool:
         for result in tqdm(pool.map(check_file, items), total=len(df)):
             if not result[0]:
-                missing += 0
+                missing += 1
                 print(f"{result[1]} IS MISSING!")
 
     print(f"{missing} FILES ARE MISSING!")
