@@ -104,15 +104,7 @@ class PatchlessnnUnetDataset(Dataset):
                 # must unsqueeze to accommodate code in train/val step
                 img = img.unsqueeze(0)
                 mask = mask.unsqueeze(0)
-        print({'image': img.shape,
-                'label': mask.shape,
-                'image_meta_dict': {'case_identifier': self.df.iloc[idx]['dicom_uuid'],
-                                    'original_shape': original_shape,
-                                    'original_spacing': img_nifti.header['pixdim'][1:4],
-                                    'original_affine': img_nifti.affine,
-                                    'resampled_affine': resampled_affine,
-                                    }
-                })
+
         return {'image': img.type(torch.float32),
                 'label': mask.type(torch.float32),
                 'image_meta_dict': {'case_identifier': self.df.iloc[idx]['dicom_uuid'],
