@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 @hydra.main(version_base="1.3", config_path="configs", config_name="file_check")
 def check_files(cfg: DictConfig):
-    data_path = cfg.data_path + cfg.dataset_name
+    data_path = cfg.data_path + '/' + cfg.dataset_name
 
     df = pd.read_csv(data_path + '/' + cfg.csv_file_name, index_col=0)
     df = df[df['valid_segmentation'] == True]
