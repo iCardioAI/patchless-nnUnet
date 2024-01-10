@@ -1,3 +1,4 @@
+import multiprocessing
 from pathlib import Path
 
 import hydra
@@ -7,25 +8,37 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 
+def check_file(in_tuple):
+    data_path, r = in_tuple
+    # check for img
+    img_path = Path(data_path) / 'img' / r['study'] / r['view'].lower() / (r['dicom_uuid'] + "_0000.nii.gz")
+    if not img_path.is_file():
+        print(f"{img_path} IS MISSING!")
+        return False
+
+    # check for img
+    seg_path = Path(data_path) / 'segmentation' / r['study'] / r['view'].lower() / (r['dicom_uuid'] + ".nii.gz")
+    if not seg_path.is_file():
+        print(f"{seg_path} IS MISSING!")
+        return False
+    return True
+
+
 @hydra.main(version_base="1.3", config_path="configs", config_name="file_check")
 def check_files(cfg: DictConfig):
     data_path = cfg.data_path + '/' + cfg.dataset_name
 
     df = pd.read_csv(data_path + '/' + cfg.csv_file_name, index_col=0)
     df = df[df['valid_segmentation'] == True]
+    items = [(data_path, r[1].to_dict()) for r in df.iterrows()]
 
-    for idx, row in tqdm(df.iterrows(), total=len(df)):
-        r = row.to_dict()
+    with multiprocessing.Pool() as pool:
+        for result in tqdm(pool.map(check_file, items), total=len(df)):
+            if not result:
+                print("NO")
 
-        # check for img
-        img_path = Path(data_path) / 'img' / r['study'] / r['view'].lower() / (r['dicom_uuid'] + "_0000.nii.gz")
-        if not img_path.is_file():
-            raise Exception(f"FILE {img_path} IS MISSING")
-
-        # check for img
-        seg_path = Path(data_path) / 'segmentation' / r['study'] / r['view'].lower() / (r['dicom_uuid'] + ".nii.gz")
-        if not seg_path.is_file():
-            raise Exception(f"FILE {seg_path} IS MISSING")
+    # for idx, row in tqdm(df.iterrows(), total=len(df)):
+    #     check_file(data_path, row.to_dict())
 
     print("NO FILES ARE MISSING!")
     print(f"TOTAL NUMBER OF VALID SEQUENCES: {len(df)}")
