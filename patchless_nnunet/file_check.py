@@ -13,13 +13,13 @@ def check_file(in_tuple):
     # check for img
     img_path = Path(data_path) / 'img' / r['study'] / r['view'].lower() / (r['dicom_uuid'] + "_0000.nii.gz")
     if not img_path.is_file():
-        return False, r['dicom']
+        return False, r['dicom_uuid']
 
     # check for img
     seg_path = Path(data_path) / 'segmentation' / r['study'] / r['view'].lower() / (r['dicom_uuid'] + ".nii.gz")
     if not seg_path.is_file():
-        return False, r['dicom']
-    return True, r['dicom']
+        return False, r['dicom_uuid']
+    return True, r['dicom_uuid']
 
 
 @hydra.main(version_base="1.3", config_path="configs", config_name="file_check")
