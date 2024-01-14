@@ -136,6 +136,10 @@ class nnUNetPatchlessLitModule(LightningModule):
         )
         return {"loss": loss}
 
+    def on_train_epoch_end(self) -> None:
+        # clear memory to avoid OOM when close to limit
+        torch.cuda.empty_cache()
+
     def validation_step(
         self, batch: dict[str, Tensor], batch_idx: int
     ) -> dict[str, Tensor]:  # noqa: D102
@@ -263,6 +267,8 @@ class nnUNetPatchlessLitModule(LightningModule):
             batch_size=self.trainer.datamodule.hparams.batch_size,
             sync_dist=True,
         )
+        # clear memory to avoid OOM when close to limit
+        torch.cuda.empty_cache()
 
     def on_test_start(self) -> None:  # noqa: D102
         super().on_test_start()
