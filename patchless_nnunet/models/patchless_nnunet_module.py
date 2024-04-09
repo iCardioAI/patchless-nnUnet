@@ -657,14 +657,14 @@ class nnUNetPatchlessLitModule(LightningModule):
             spacing: Spacing to save the segmentation mask.
             save_dir: Directory to save the segmentation mask.
         """
-        print(f"Saving segmentation for {fname}...")
+        print(f"Saving segmentation for {fname}... in {save_dir}")
 
         os.makedirs(save_dir, exist_ok=True)
 
         preds = preds.astype(np.uint8)
         itk_image = sitk.GetImageFromArray(rearrange(preds, "w h d ->  d h w"))
         itk_image.SetSpacing(spacing)
-        sitk.WriteImage(itk_image, os.path.join(save_dir, fname + ".nii.gz"))
+        sitk.WriteImage(itk_image, os.path.join(save_dir, str(fname) + ".nii.gz"))
 
     def update_eval_criterion_MA(self):
         """Update moving average validation loss."""
