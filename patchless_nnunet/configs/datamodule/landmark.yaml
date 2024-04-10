@@ -1,0 +1,18 @@
+_target_: patchless_nnunet.datamodules.landmark_datamodule.LandmarkDataModule
+data_dir: "/data/icardio/processed/"
+num_workers: 12
+pin_memory: True
+batch_size: 1 # must be 1
+dataset_name: ""
+csv_file_name: subset_csv/merged_subset_w_split_0_1-18.csv
+splits_column: null # column for train-test-val split, will be created if doesn't yet exist
+seed: ${seed}
+
+common_spacing: [0.37, 0.37, 1] # approx average spacing in dataset
+max_window_len: 4 # optimal for time contistency and fast movements
+max_batch_size: null
+max_tensor_volume: 5000000 # alright for 24gb gpu
+shape_divisible_by: [32, 32, 4]
+
+landmark_path: /data/icardio/processed/valve_landmarks_2/
+landmark_qc_path: /home/local/USHERBROOKE/juda2901/dev/qc/landmarks2/

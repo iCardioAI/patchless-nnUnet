@@ -1,0 +1,29 @@
+defaults:
+  - net: unet
+  - optimizer: adam
+  - scheduler: none
+  - loss: mse
+
+_target_: patchless_nnunet.models.landmark_module.nnUNetPatchlessLitModule
+
+optimizer_monitor: val/loss
+
+tta: True
+save_predictions: False
+save_npz: False
+
+name: landmark
+
+common_spacing: [0.37, 0.37, 1]
+sliding_window_len: 4
+
+net:
+  in_channels: 1
+  num_classes: 2
+  patch_size: [352, 288, 20]
+  kernels: [[3, 3, 1], [3, 3, 3], [3, 3, 3], [3, 3, 3], [3, 3, 3], [3, 3, 3]]
+  strides: [[1, 1, 1], [2, 2, 1], [2, 2, 2], [2, 2, 2], [2, 2, 1], [2, 2, 1]]
+  deep_supervision: False
+
+#loss:
+#  soft_dice_kwargs: {"batch_dice": False, "smooth": 1e-05, "do_bg": False}

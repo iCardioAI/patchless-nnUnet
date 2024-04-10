@@ -146,6 +146,9 @@ class PatchlessnnUnetDataModule(LightningDataModule):
             use_dataset_fraction: float = 1.0,
             num_workers: int = os.cpu_count() - 1,
             pin_memory: bool = True,
+            dataset=PatchlessnnUnetDataset,
+            *args,
+            **kwargs
     ):
         """Initialize class instance.
 
@@ -162,6 +165,8 @@ class PatchlessnnUnetDataModule(LightningDataModule):
         super().__init__()
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
+        self.args = args
+        self.kwargs = kwargs
         self.save_hyperparameters(logger=False)
 
         self.data_path = self.hparams.data_dir + '/' + self.hparams.dataset_name
@@ -229,34 +234,40 @@ class PatchlessnnUnetDataModule(LightningDataModule):
                 self.df.to_csv(self.data_path + '/' + self.hparams.csv_file_name)
 
         if stage == "fit" or stage is None:
-            self.data_train = PatchlessnnUnetDataset(self.df.loc[self.train_idx],
+            self.data_train = self.hparams.dataset(self.df.loc[self.train_idx],
                                                      data_path=self.data_path,
                                                      common_spacing=common_spacing,
                                                      max_window_len=self.hparams.max_window_len,
                                                      use_dataset_fraction=self.hparams.use_dataset_fraction,
                                                      max_batch_size=self.hparams.max_batch_size,
                                                      max_tensor_volume=self.hparams.max_tensor_volume,
-                                                     shape_divisible_by=list(self.hparams.shape_divisible_by)
+                                                     shape_divisible_by=list(self.hparams.shape_divisible_by),
+                                                     *self.args,
+                                                     **self.kwargs,
                                                      )
             print(f"LEN OF TRAIN SET: {len(self.data_train)}")
-            self.data_val = PatchlessnnUnetDataset(self.df.loc[self.val_idx],
+            self.data_val = self.hparams.dataset(self.df.loc[self.val_idx],
                                                    data_path=self.data_path,
                                                    common_spacing=common_spacing,
                                                    max_window_len=self.hparams.max_window_len,
                                                    use_dataset_fraction=self.hparams.use_dataset_fraction,
                                                    max_batch_size=self.hparams.max_batch_size,
                                                    max_tensor_volume=self.hparams.max_tensor_volume,
-                                                   shape_divisible_by=list(self.hparams.shape_divisible_by)
+                                                   shape_divisible_by=list(self.hparams.shape_divisible_by),
+                                                   *self.args,
+                                                   **self.kwargs,
                                                    )
             print(f"LEN OF VAL SET: {len(self.data_val)}")
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
-            self.data_test = PatchlessnnUnetDataset(self.df.loc[self.test_idx],
+            self.data_test = self.hparams.dataset(self.df.loc[self.test_idx],
                                                     data_path=self.data_path,
                                                     test=True,
                                                     common_spacing=common_spacing,
                                                     shape_divisible_by=list(self.hparams.shape_divisible_by),
-                                                    use_dataset_fraction=self.hparams.use_dataset_fraction
+                                                    use_dataset_fraction=self.hparams.use_dataset_fraction,
+                                                    *self.args,
+                                                    **self.kwargs,
                                                     )
             print(f"LEN OF TEST SET: {len(self.data_test)}")
 
