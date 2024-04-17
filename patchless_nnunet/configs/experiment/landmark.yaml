@@ -3,7 +3,7 @@
 defaults:
   - override /datamodule: landmark
   - override /model: landmark
-  - override /callbacks: none
+  - override /callbacks: landmark
   - override /logger: tensorboard
   - override /trainer: patchless_nnunet
   - override /hydra: patchless_nnunet

@@ -10,9 +10,9 @@ seed: ${seed}
 
 common_spacing: [0.37, 0.37, 1] # approx average spacing in dataset
 max_window_len: 4 # optimal for time contistency and fast movements
-max_batch_size: null
+max_batch_size: 1
 max_tensor_volume: 5000000 # alright for 24gb gpu
 shape_divisible_by: [32, 32, 4]
 
-landmark_path: /data/icardio/processed/valve_landmarks_2/
-landmark_qc_path: /home/local/USHERBROOKE/juda2901/dev/qc/landmarks2/
+landmark_path: /data/icardio/valve_landmarks_validated/landmarks/
+landmark_qc_path: /data/icardio/valve_landmarks_validated/qc_files/

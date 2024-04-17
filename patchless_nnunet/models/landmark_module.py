@@ -23,7 +23,9 @@ from torchvision.transforms.functional import adjust_contrast, rotate
 from patchless_nnunet.utils.inferers import SlidingWindowInferer
 from patchless_nnunet.utils.softmax import softmax_helper
 from patchless_nnunet.utils.tensor_utils import sum_tensor
-from patchless_nnunet.utils.instantiators import instantiate_callbacks, instantiate_loggers
+from patchless_nnunet.utils.custom_dsnt import flat_softmax, dsnt
+from patchless_nnunet.utils.coordinate_utils import CoordinateExtractor
+
 import torchio as tio
 
 
@@ -100,6 +102,8 @@ class nnUNetPatchlessLitModule(LightningModule):
         self.validation_step_outputs = []
         self.test_step_outputs = []
 
+        self.coords_extractor = CoordinateExtractor(threshold=0.1)
+
     def setup(self, stage: Optional[str] = None) -> None:  # noqa: D102
         # to initialize some class variables that depend on the model
         self.threeD = len(self.net.patch_size) == 3
@@ -118,16 +122,26 @@ class nnUNetPatchlessLitModule(LightningModule):
         self, batch: dict[str, Tensor], batch_idx: int
     ) -> dict[str, Tensor]:  # noqa: D102
         # make sure to squeeze first dimension since batch comes from only one image
-        img, label = batch["image"].squeeze(0), batch["label"].squeeze(0)
+        img, label, lm_points = batch["image"].squeeze(0), batch["label"].squeeze(0), batch['landmark_points'].squeeze(0)
 
         # Need to handle carefully the multi-scale outputs from deep supervision heads
-        pred = torch.sigmoid(self.forward(img))
-        loss = self.compute_loss(pred, label)
+        heatmaps = self.forward(img)#.permute((0, 4, 1, 2, 3)).contiguous()
+        # heatmaps = flat_softmax(heatmaps).permute((0, 2, 3, 4, 1)).contiguous()
+
+        # coords = dsnt(heatmaps)
+        loss = self.loss(heatmaps, label)
+
+        # Per-location euclidean losses
+        # euc_losses = dsntnn.euclidean_losses(coords, lm_points)
+        # # Per-location regularization losses
+        # #reg_losses = dsntnn.js_reg_losses(heatmaps, lm_points, sigma_t=1.0)
+        # # Combine losses into an overall loss
+        # loss = dsntnn.average_loss(euc_losses)# + reg_losses)
 
         self.log(
             "train/loss",
             loss,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             prog_bar=True,
             logger=True,
@@ -144,46 +158,31 @@ class nnUNetPatchlessLitModule(LightningModule):
         self, batch: dict[str, Tensor], batch_idx: int
     ) -> dict[str, Tensor]:  # noqa: D102
         # squeeze first dim since batch comes from only one image
-        img, label = batch["image"].squeeze(0), batch["label"].squeeze(0)
+        img, label, lm_points = batch["image"].squeeze(0), batch["label"].squeeze(0), batch['landmark_points'].squeeze(0)
 
         # Only the highest resolution output is returned during the validation
-        pred = torch.sigmoid(self.forward(img))
-        loss = self.loss(pred, label)
+        heatmaps = self.forward(img)#.permute((0, 4, 1, 2, 3)).contiguous()
+        # heatmaps = flat_softmax(heatmaps).permute((0, 2, 3, 4, 1)).contiguous()
 
-        # # Compute the stats that will be used to compute the final dice metric during the end of
-        # # epoch
-        # num_classes = pred.shape[1]
-        # pred_softmax = softmax_helper(pred)
-        pred_seg = pred.sum(dim=1)
-        # label = label[:, 0]
-        # axes = tuple(range(1, len(label.shape)))
-        # tp_hard = torch.zeros((label.shape[0], num_classes - 1)).to(pred_seg.device.index)
-        # fp_hard = torch.zeros((label.shape[0], num_classes - 1)).to(pred_seg.device.index)
-        # fn_hard = torch.zeros((label.shape[0], num_classes - 1)).to(pred_seg.device.index)
-        #
-        # for c in range(1, num_classes):
-        #     tp_hard[:, c - 1] = sum_tensor(
-        #         (pred_seg == c).float() * (label == c).float(), axes=axes
-        #     )
-        #     fp_hard[:, c - 1] = sum_tensor(
-        #         (pred_seg == c).float() * (label != c).float(), axes=axes
-        #     )
-        #     fn_hard[:, c - 1] = sum_tensor(
-        #         (pred_seg != c).float() * (label == c).float(), axes=axes
-        #     )
-        #
-        # tp_hard = tp_hard.sum(0, keepdim=False).detach().cpu().numpy()
-        # fp_hard = fp_hard.sum(0, keepdim=False).detach().cpu().numpy()
-        # fn_hard = fn_hard.sum(0, keepdim=False).detach().cpu().numpy()
-        #
-        # self.online_eval_foreground_dc.append(
-        #     list((2 * tp_hard) / (2 * tp_hard + fp_hard + fn_hard + 1e-8))
-        # )
-        # self.online_eval_tp.append(list(tp_hard))
-        # self.online_eval_fp.append(list(fp_hard))
-        # self.online_eval_fn.append(list(fn_hard))
-        #
-        # self.validation_step_outputs.append({"val/loss": loss})
+        # coords = dsnt(heatmaps)
+        loss = self.loss(heatmaps, label)
+
+        # plt.figure()
+        # plt.imshow(label[0, 0, :, :, 0].cpu().detach().numpy())
+        # plt.figure()
+        # plt.imshow(label[0, 1, :, :, 0].cpu().detach().numpy())
+        # plt.show()
+
+        # Per-location euclidean losses
+        # euc_losses = dsntnn.euclidean_losses(coords, lm_points)
+        # # Per-location regularization losses
+        # #reg_losses = dsntnn.js_reg_losses(heatmaps, lm_points, sigma_t=1.0)
+        # # Combine losses into an overall loss
+        # loss = dsntnn.average_loss(euc_losses)# + reg_losses)
+
+        heatmaps = torch.round(torch.sigmoid(heatmaps))
+
+        self.validation_step_outputs.append({"val/loss": loss})
 
         if batch_idx == 0:
             self.log_images(
@@ -192,82 +191,30 @@ class nnUNetPatchlessLitModule(LightningModule):
                 num_timesteps=min(img.shape[-1], 4),
                 axes_content={
                     'Image': img.squeeze(1).cpu().detach().numpy(),
-                    'Prediction': pred_seg.cpu().detach().numpy(),
-                    'Stack': label.sum(dim=1).cpu().detach().numpy(),
+                    'Pred_1': heatmaps[:, 0, ...].cpu().detach().numpy(),
+                    'Pred_2': heatmaps[:, 1, ...].cpu().detach().numpy(),
+                    'Label_1': label[:, 0, ...].cpu().detach().numpy(),
+                    'Label_2': label[:, 1, ...].cpu().detach().numpy(),
                 }
             )
 
         return {"val/loss": loss}
 
-    # def on_validation_epoch_end(self):  # noqa: D102
-    #     loss = self.metric_mean("val/loss", self.validation_step_outputs)
-    #     self.validation_step_outputs.clear()  # free memory
-    #
-    #     self.online_eval_tp = np.sum(self.online_eval_tp, 0)
-    #     self.online_eval_fp = np.sum(self.online_eval_fp, 0)
-    #     self.online_eval_fn = np.sum(self.online_eval_fn, 0)
-    #
-    #     global_dc_per_class = [
-    #         i if not np.isnan(i) else 0.0
-    #         for i in [
-    #             2 * i / (2 * i + j + k)
-    #             for i, j, k in zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)
-    #         ]
-    #     ]
-    #
-    #     self.all_val_eval_metrics.append(np.mean(global_dc_per_class))
-    #
-    #     self.online_eval_foreground_dc = []
-    #     self.online_eval_tp = []
-    #     self.online_eval_fp = []
-    #     self.online_eval_fn = []
-    #
-    #     self.update_eval_criterion_MA()
-    #     self.maybe_update_best_val_eval_criterion_MA()
-    #
-    #     self.log(
-    #         "val/loss",
-    #         loss,
-    #         on_step=False,
-    #         on_epoch=True,
-    #         prog_bar=True,
-    #         logger=True,
-    #         batch_size=self.trainer.datamodule.hparams.batch_size,
-    #         sync_dist=True,
-    #     )
-    #     self.log(
-    #         "val/dice_MA",
-    #         self.val_eval_criterion_MA,
-    #         on_step=False,
-    #         on_epoch=True,
-    #         prog_bar=True,
-    #         logger=True,
-    #         batch_size=self.trainer.datamodule.hparams.batch_size,
-    #         sync_dist=True,
-    #     )
-    #     for label, dice in zip(range(len(global_dc_per_class)), global_dc_per_class):
-    #         self.log(
-    #             f"val/dice/{label}",
-    #             np.round(dice, 4),
-    #             on_step=False,
-    #             on_epoch=True,
-    #             prog_bar=True,
-    #             logger=True,
-    #             batch_size=self.trainer.datamodule.hparams.batch_size,
-    #             sync_dist=True,
-    #         )
-    #     self.log(
-    #         f"val/mean_dice",
-    #         np.mean(global_dc_per_class),
-    #         on_step=False,
-    #         on_epoch=True,
-    #         prog_bar=True,
-    #         logger=True,
-    #         batch_size=self.trainer.datamodule.hparams.batch_size,
-    #         sync_dist=True,
-    #     )
-    #     # clear memory to avoid OOM when close to limit
-    #     torch.cuda.empty_cache()
+    def on_validation_epoch_end(self):  # noqa: D102
+        loss = self.metric_mean("val/loss", self.validation_step_outputs)
+
+        self.log(
+            "val/loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=self.trainer.datamodule.hparams.batch_size,
+            sync_dist=True,
+        )
+        # clear memory to avoid OOM when close to limit
+        torch.cuda.empty_cache()
 
     def on_test_start(self) -> None:  # noqa: D102
         super().on_test_start()
@@ -287,50 +234,38 @@ class nnUNetPatchlessLitModule(LightningModule):
     def test_step(
         self, batch: dict[str, Tensor], batch_idx: int
     ) -> dict[str, Tensor]:  # noqa: D102
-        img, label, properties_dict = batch["image"], batch["label"], batch["image_meta_dict"]
+        img, label, properties_dict, label_points = batch["image"], batch["label"], batch["image_meta_dict"], batch["landmark_points"]
 
         self.patch_size = list([img.shape[-3], img.shape[-2], self.hparams.sliding_window_len])
         self.inferer.roi_size = self.patch_size
 
         start_time = time.time()
-        preds = self.tta_predict(img) if self.hparams.tta else self.predict(img)
+        preds = self.tta_predict(img, apply_softmax=False) if self.hparams.tta else self.predict(img, apply_softmax=False)
         print(f"\nPrediction took {round(time.time() - start_time, 4)} (s).")
 
-        num_classes = preds.shape[1]
-        pred_seg = preds.argmax(1)
-        label = label[:, 0]
-        axes = tuple(range(1, len(label.shape)))
-        tp_hard = torch.zeros((label.shape[0], num_classes - 1)).to(pred_seg.device.index)
-        fp_hard = torch.zeros((label.shape[0], num_classes - 1)).to(pred_seg.device.index)
-        fn_hard = torch.zeros((label.shape[0], num_classes - 1)).to(pred_seg.device.index)
-        for c in range(1, num_classes):
-            tp_hard[:, c - 1] = sum_tensor(
-                (pred_seg == c).float() * (label == c).float(), axes=axes
-            )
-            fp_hard[:, c - 1] = sum_tensor(
-                (pred_seg == c).float() * (label != c).float(), axes=axes
-            )
-            fn_hard[:, c - 1] = sum_tensor(
-                (pred_seg != c).float() * (label == c).float(), axes=axes
-            )
+        preds = torch.sigmoid(preds)
 
-        tp_hard = tp_hard.sum(0, keepdim=False)
-        fp_hard = fp_hard.sum(0, keepdim=False)
-        fn_hard = fn_hard.sum(0, keepdim=False)
-        test_dice = (2 * tp_hard) / (2 * tp_hard + fp_hard + fn_hard + 1e-8)
+        estim_coords = self.coords_extractor(preds.squeeze(0).cpu().detach())
+        estim_coords_norm = estim_coords.copy()
+        estim_coords_norm[:, :, 0] = ((estim_coords_norm[:, :, 0] / img.shape[-3]) * 2) - 1
+        estim_coords_norm[:, :, 1] = ((estim_coords_norm[:, :, 1] / img.shape[-3]) * 2) - 1
+        eucl_dist = np.sqrt(np.power(estim_coords_norm - label_points.cpu().numpy().squeeze(0), 2).sum(axis=-1))
 
-        test_dice = torch.mean(test_dice, 0)
+        label_points = label_points.cpu().numpy().squeeze(0)
+        label_points[:, :, 0] = ((label_points[:, :, 0] + 1) / 2) * img.shape[-3]
+        label_points[:, :, 1] = ((label_points[:, :, 1] + 1) / 2) * img.shape[-2]
+        label_points = label_points.astype(int)
 
-        self.log(
-            "test/dice",
-            test_dice,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            logger=True,
-            batch_size=self.trainer.datamodule.hparams.batch_size,
-            sync_dist=True,
-        )
+        # for i in range(min(preds.shape[-1], 5)):
+        #     plt.figure()
+        #     plt.imshow(img[0, ..., i].cpu().detach().numpy().T, cmap='grey')
+        #     plt.imshow(preds[0, 0, ..., i].cpu().detach().numpy().T, alpha=0.3, cmap='jet')
+        #     plt.imshow(preds[0, 1, ..., i].cpu().detach().numpy().T, alpha=0.3, cmap='jet')
+        #
+        #     plt.scatter(x=estim_coords[i, :, 1], y=estim_coords[i, :, 0], marker='x', c='r')
+        #     plt.scatter(x=label_points[i, :, 1], y=label_points[i, :, 0], marker='x', c='g')
+        #     plt.title(eucl_dist[i])
+        # plt.show()
 
         self.log_images(
             title=f'test_{batch_idx}',
@@ -338,9 +273,10 @@ class nnUNetPatchlessLitModule(LightningModule):
             num_timesteps=min(img.shape[-1], 4),
             axes_content={
                 'Image': img.squeeze(1).cpu().detach().numpy(),
-                'Prediction': pred_seg.cpu().detach().numpy(),
-                'Stack': np.stack((img.squeeze(1).cpu().detach().numpy(),
-                                   pred_seg.cpu().detach().numpy())),
+                'Pred_1': preds[:, 0, ...].cpu().detach().numpy(),
+                'Pred_2': preds[:, 1, ...].cpu().detach().numpy(),
+                'Label_1': label[:, 0, ...].cpu().detach().numpy(),
+                'Label_2': label[:, 1, ...].cpu().detach().numpy(),
             }
         )
 
@@ -364,17 +300,43 @@ class nnUNetPatchlessLitModule(LightningModule):
 
             self.save_mask(final_preds, fname, spacing.astype(np.float64), save_dir)
 
-        self.test_step_outputs.append({"test/dice": test_dice})
+        self.test_step_outputs.append({"test/euclid_dist_l": torch.tensor(eucl_dist[:, 0]).mean()})
+        self.test_step_outputs.append({"test/euclid_dist_r": torch.tensor(eucl_dist[:, 1]).mean()})
+        self.test_step_outputs.append({"test/euclid_dist": torch.tensor(eucl_dist).mean()})
 
-        return {"test/dice": test_dice}
+        return {"test/euclid_dist_l": eucl_dist[:, 0].mean(),
+                "test/euclid_dist_r": eucl_dist[:, 1].mean(),
+                "test/euclid_dist": eucl_dist.mean()}
 
     def on_test_epoch_end(self):  # noqa: D102
-        mean_dice = self.metric_mean("test/dice", self.test_step_outputs)
+        mean_euclid_l = self.metric_mean("test/euclid_dist_l", self.test_step_outputs)
+        mean_euclid_r = self.metric_mean("test/euclid_dist_r", self.test_step_outputs)
+        mean_euclid = self.metric_mean("test/euclid_dist", self.test_step_outputs)
         self.test_step_outputs.clear()  # free memory
 
         self.log(
-            "test/mean_dice",
-            mean_dice,
+            "test/mean_euclid_dist_l",
+            mean_euclid_l,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            logger=True,
+            batch_size=self.trainer.datamodule.hparams.batch_size,
+            sync_dist=True
+        )
+        self.log(
+            "test/mean_euclid_dist_r",
+            mean_euclid_r,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            logger=True,
+            batch_size=self.trainer.datamodule.hparams.batch_size,
+            sync_dist=True
+        )
+        self.log(
+            "test/mean_euclid_dist",
+            mean_euclid,
             on_step=False,
             on_epoch=True,
             prog_bar=False,
@@ -616,7 +578,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         Returns:
             Averaged metrics tensor.
         """
-        return torch.stack([out[name] for out in outputs]).mean(dim=0)
+        return torch.stack([out[name] for out in outputs if out.get(name)]).mean(dim=0)
 
     @staticmethod
     def get_properties(image_meta_dict: dict) -> OrderedDict:
@@ -734,6 +696,7 @@ if __name__ == "__main__":
     from hydra import compose, initialize
     from lightning import Callback, LightningDataModule, LightningModule, Trainer
     from omegaconf import OmegaConf
+    from patchless_nnunet.utils.instantiators import instantiate_callbacks
 
     root = pyrootutils.setup_root(__file__, pythonpath=True)
 

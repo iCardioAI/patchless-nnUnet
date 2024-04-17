@@ -2,7 +2,7 @@ defaults:
   - net: unet
   - optimizer: adam
   - scheduler: none
-  - loss: mse
+  - loss: bcewlogits
 
 _target_: patchless_nnunet.models.landmark_module.nnUNetPatchlessLitModule
 

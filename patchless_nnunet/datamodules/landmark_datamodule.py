@@ -31,25 +31,7 @@ class LandmarkDataset(PatchlessnnUnetDataset):
                          max_tensor_volume, shape_divisible_by, test)
 
         self.landmark_path = landmark_path
-
-        # self.df = self.df[self.df['dicom_uuid'].isin(self.get_valid_landmark_sequences(landmark_qc_path))]
         print(len(self.df))
-
-    def get_valid_landmark_sequences(self, json_files_path):
-        json_dir = Path(json_files_path)
-        seq_dict = {}
-        for p in json_dir.glob("*.json"):
-            with open(p, 'r') as f:
-                data = json.load(f)
-            for i in range(len(data[1]['data'])):
-                seq = data[1]['data'][i]
-
-                dicom = seq['filename'].split("_")[0]
-                seq_dict[dicom] = seq_dict.get(dicom, []) + [True] if "Pass" in seq['status'] else [False]
-
-        for key, value in seq_dict.items():
-            seq_dict[key] = all(value)
-        return [k for k, v in seq_dict.items() if v]
 
     def __getitem__(self, idx):
         # Get paths and open images
@@ -79,15 +61,27 @@ class LandmarkDataset(PatchlessnnUnetDataset):
 
         # convert points to heatmaps
         landmarks = np.zeros_like(img).repeat(repeats=2, axis=0)
+        landmark_points_norm = landmark_points.copy()
         for i in range(img.shape[-1]):
             for idx, point in enumerate(landmark_points[i]):
                 y = int(point[0] / original_shape[0] * img.shape[1])
                 x = int(point[1] / original_shape[1] * img.shape[2])
+
+                landmark_points_norm[i, idx, 0] = (point[0] / original_shape[0] * 2) - 1
+                landmark_points_norm[i, idx, 1] = (point[1] / original_shape[1] * 2) - 1
+
                 landmarks[idx, x, y, i] = 1
                 landmarks[idx, ..., i] = gaussian_filter(landmarks[idx, ..., i], sigma=5)
                 landmarks[idx, ..., i] = (landmarks[idx, ..., i] - np.min(landmarks[idx, ..., i])) / \
                                          (np.max(landmarks[idx, ..., i]) - np.min(landmarks[idx, ..., i]))
+        # from matplotlib import pyplot as plt
+        # plt.figure()
+        # plt.imshow(landmarks[0, :, :, 0])
+        # plt.figure()
+        # plt.imshow(landmarks[0, :, :, 0])
+        # plt.show()
         landmarks = torch.tensor(landmarks)
+        landmark_points_norm = torch.tensor(landmark_points_norm)
 
         if not self.test:
             if self.max_window_len:
@@ -98,21 +92,25 @@ class LandmarkDataset(PatchlessnnUnetDataset):
                     else self.max_batch_size
                 b_img = []
                 b_landmarks = []
-                for i in range(dynamic_batch_size):
+                b_points = []
+                for _ in range(dynamic_batch_size):
                     start_idx = np.random.randint(low=0, high=max(img.shape[-1] - self.max_window_len, 1))
                     b_img += [img[..., start_idx:start_idx + self.max_window_len]]
                     b_landmarks += [landmarks[..., start_idx:start_idx + self.max_window_len]]
+                    b_points += [landmark_points_norm[start_idx:start_idx + self.max_window_len, ...]]
                 img = torch.stack(b_img)
                 landmarks = torch.stack(b_landmarks)
+                landmark_points_norm = torch.stack(b_points)
             else:
                 # use entire available time window
                 # must unsqueeze to accommodate code in train/val step
                 img = img.unsqueeze(0)
                 landmarks = landmarks.unsqueeze(0)
+                landmark_points_norm = landmark_points_norm.unsqueeze(0)
 
         return {'image': img.type(torch.float32),
                 'label': landmarks.type(torch.float32),
-                'landmark_points': torch.tensor(landmark_points),  # in original coordinate system
+                'landmark_points': landmark_points_norm.type(torch.float32),  # in original coordinate system
                 'image_meta_dict': {'case_identifier': self.df.iloc[idx]['dicom_uuid'],
                                     'original_shape': original_shape,
                                     'original_spacing': img_nifti.header['pixdim'][1:4],
