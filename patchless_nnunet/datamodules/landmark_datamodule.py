@@ -63,20 +63,18 @@ class LandmarkDataset(PatchlessnnUnetDataset):
         landmarks = np.zeros_like(img).repeat(repeats=2, axis=0)
         landmark_points_norm = landmark_points.copy()
         for i in range(img.shape[-1]):
-            for idx, point in enumerate(landmark_points[i]):
+            for j, point in enumerate(landmark_points[i]):
                 y = int(point[0] / original_shape[0] * img.shape[1])
                 x = int(point[1] / original_shape[1] * img.shape[2])
 
-                landmark_points_norm[i, idx, 0] = (point[0] / original_shape[0] * 2) - 1
-                landmark_points_norm[i, idx, 1] = (point[1] / original_shape[1] * 2) - 1
+                landmark_points_norm[i, j, 0] = (point[0] / original_shape[0] * 2) - 1
+                landmark_points_norm[i, j, 1] = (point[1] / original_shape[1] * 2) - 1
 
-                landmarks[idx, x, y, i] = 1
-                landmarks[idx, ..., i] = gaussian_filter(landmarks[idx, ..., i], sigma=5)
+                landmarks[j, x, y, i] = 1
+                landmarks[j, ..., i] = gaussian_filter(landmarks[j, ..., i], sigma=10)
                 landmarks[idx, ..., i] = (landmarks[idx, ..., i] - np.min(landmarks[idx, ..., i])) / \
                                          (np.max(landmarks[idx, ..., i]) - np.min(landmarks[idx, ..., i]))
         # from matplotlib import pyplot as plt
-        # plt.figure()
-        # plt.imshow(landmarks[0, :, :, 0])
         # plt.figure()
         # plt.imshow(landmarks[0, :, :, 0])
         # plt.show()
@@ -86,7 +84,7 @@ class LandmarkDataset(PatchlessnnUnetDataset):
         if not self.test:
             if self.max_window_len:
                 # use partial time window, create as many batches as possible with it unless self.max_batch_size not set
-                dynamic_batch_size = img.shape[-1] // self.max_window_len \
+                dynamic_batch_size = max(img.shape[-1] // self.max_window_len, 1) \
                     if not self.max_batch_size or not (self.max_batch_size > 0 and
                                                        (self.max_batch_size * self.max_window_len) < img.shape[-1]) \
                     else self.max_batch_size
