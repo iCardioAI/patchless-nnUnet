@@ -72,8 +72,8 @@ class LandmarkDataset(PatchlessnnUnetDataset):
 
                 landmarks[j, x, y, i] = 1
                 landmarks[j, ..., i] = gaussian_filter(landmarks[j, ..., i], sigma=10)
-                landmarks[idx, ..., i] = (landmarks[idx, ..., i] - np.min(landmarks[idx, ..., i])) / \
-                                         (np.max(landmarks[idx, ..., i]) - np.min(landmarks[idx, ..., i]))
+                landmarks[j, ..., i] = (landmarks[j, ..., i] - np.min(landmarks[j, ..., i])) / \
+                                         (np.max(landmarks[j, ..., i]) - np.min(landmarks[j, ..., i]))
         # from matplotlib import pyplot as plt
         # plt.figure()
         # plt.imshow(landmarks[0, :, :, 0])
