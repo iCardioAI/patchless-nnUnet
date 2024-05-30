@@ -1,10 +1,10 @@
 _target_: patchless_nnunet.datamodules.landmark_datamodule.LandmarkDataModule
-data_dir: "/data/icardio/processed/"
+data_dir: "/data/cardinal_landmarks/"
 num_workers: 12
 pin_memory: True
 batch_size: 1 # must be 1
 dataset_name: ""
-csv_file_name: ../valve_landmarks_validated/landmarks_df2.csv
+csv_file_name: cardinal.csv
 splits_column: lm_split2 # column for train-test-val split, will be created if doesn't yet exist
 seed: ${seed}
 
@@ -14,5 +14,7 @@ max_batch_size: 1
 max_tensor_volume: 5000000 # alright for 24gb gpu
 shape_divisible_by: [32, 32, 4]
 
-landmark_path: /data/icardio/valve_landmarks_validated/landmarks/
-landmark_qc_path: /data/icardio/valve_landmarks_validated/qc_files/
+landmark_path: /data/cardinal_landmarks/landmarks/
+landmark_qc_path: null
+
+# ckpt_path=/home/local/USHERBROOKE/juda2901/dev/patchless-nnUnet/logs/landmark/landmark/runs/2024-05-23_12-47-08/checkpoints/epoch_266.ckpt train=False

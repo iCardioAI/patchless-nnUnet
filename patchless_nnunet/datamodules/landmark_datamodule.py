@@ -54,21 +54,29 @@ class LandmarkDataset(PatchlessnnUnetDataset):
         transform = tio.Resample(self.common_spacing)
         resampled = transform(tio.ScalarImage(tensor=np.expand_dims(img, 0), affine=img_nifti.affine))
 
-        croporpad = tio.CropOrPad(self.get_desired_size(resampled.shape[1:]))
+        desired_shape = self.get_desired_size(resampled.shape[1:])
+        croporpad = tio.CropOrPad((*desired_shape[:-1], img.shape[-1]))
         resampled_cropped = croporpad(resampled)
         resampled_affine = resampled_cropped.affine
         img = resampled_cropped.tensor
 
+        # TODO: fix this!!!!!
+        img = img[..., :desired_shape[-1]]
+        landmark_points = landmark_points[:desired_shape[-1], ...]
+
+        landmark_points[..., 0] = landmark_points[..., 0] / original_shape[-2] * img.shape[-2]
+        landmark_points[..., 1] = landmark_points[..., 1] / original_shape[-3] * img.shape[-3]
+
         # convert points to heatmaps
         landmarks = np.zeros_like(img).repeat(repeats=2, axis=0)
-        landmark_points_norm = landmark_points.copy()
+        # landmark_points_norm = landmark_points.copy()
         for i in range(img.shape[-1]):
             for j, point in enumerate(landmark_points[i]):
-                y = int(point[0] / original_shape[0] * img.shape[1])
-                x = int(point[1] / original_shape[1] * img.shape[2])
+                y = int(point[0]) # / original_shape[1] * img.shape[2])
+                x = int(point[1]) # / original_shape[0] * img.shape[1])
 
-                landmark_points_norm[i, j, 0] = (point[0] / original_shape[0] * 2) - 1
-                landmark_points_norm[i, j, 1] = (point[1] / original_shape[1] * 2) - 1
+                # landmark_points_norm[i, j, 0] = (point[0] / original_shape[1] * 2) - 1
+                # landmark_points_norm[i, j, 1] = (point[1] / original_shape[0] * 2) - 1
 
                 landmarks[j, x, y, i] = 1
                 landmarks[j, ..., i] = gaussian_filter(landmarks[j, ..., i], sigma=10)
@@ -76,10 +84,16 @@ class LandmarkDataset(PatchlessnnUnetDataset):
                                          (np.max(landmarks[j, ..., i]) - np.min(landmarks[j, ..., i]))
         # from matplotlib import pyplot as plt
         # plt.figure()
-        # plt.imshow(landmarks[0, :, :, 0])
-        # plt.show()
+        # for i in range(img.shape[-1]):
+        #     plt.imshow(img[0, :, :, i].T)
+        #     plt.imshow(landmarks[0, :, :, i].T, alpha=0.3)
+        #     plt.imshow(landmarks[1, :, :, i].T, alpha=0.3)
+        #     plt.plot(landmark_points[i, :, 1], landmark_points[i, :, 0], 'x', c='r')
+        #     plt.show()
+
         landmarks = torch.tensor(landmarks)
-        landmark_points_norm = torch.tensor(landmark_points_norm)
+        landmark_points = torch.tensor(landmark_points)
+        # landmark_points_norm = torch.tensor(landmark_points_norm)
 
         if not self.test:
             if self.max_window_len:
@@ -95,20 +109,28 @@ class LandmarkDataset(PatchlessnnUnetDataset):
                     start_idx = np.random.randint(low=0, high=max(img.shape[-1] - self.max_window_len, 1))
                     b_img += [img[..., start_idx:start_idx + self.max_window_len]]
                     b_landmarks += [landmarks[..., start_idx:start_idx + self.max_window_len]]
-                    b_points += [landmark_points_norm[start_idx:start_idx + self.max_window_len, ...]]
+                    b_points += [landmark_points[start_idx:start_idx + self.max_window_len, ...]]
                 img = torch.stack(b_img)
                 landmarks = torch.stack(b_landmarks)
-                landmark_points_norm = torch.stack(b_points)
+                landmark_points = torch.stack(b_points)
             else:
                 # use entire available time window
                 # must unsqueeze to accommodate code in train/val step
                 img = img.unsqueeze(0)
                 landmarks = landmarks.unsqueeze(0)
-                landmark_points_norm = landmark_points_norm.unsqueeze(0)
+                landmark_points = landmark_points.unsqueeze(0)
+
+        # landmark_coords = (0.5 * (landmark_points_norm.type(torch.float32) + 1) * torch.tensor(img.shape[-3:-1]))
+        # print(landmark_coords)
+        # print(landmark_points_norm[0, 0])
+        # print(landmark_points[0, 0])
+        # landmark_coords = torch.tensor(landmark_points).unsqueeze(0)
+        # print(landmark_coords)
 
         return {'image': img.type(torch.float32),
                 'label': landmarks.type(torch.float32),
-                'landmark_points': landmark_points_norm.type(torch.float32),  # in original coordinate system
+                # 'landmark_points': landmark_points_norm.type(torch.float32),
+                'landmark_coords': landmark_points.type(torch.float32),
                 'image_meta_dict': {'case_identifier': self.df.iloc[idx]['dicom_uuid'],
                                     'original_shape': original_shape,
                                     'original_spacing': img_nifti.header['pixdim'][1:4],
@@ -121,7 +143,9 @@ class LandmarkDataset(PatchlessnnUnetDataset):
 class LandmarkDataModule(PatchlessnnUnetDataModule):
     def __init__(self, dataset=LandmarkDataset, landmark_qc_path=None, *args, **kwargs):
         super().__init__(dataset=dataset, *args, **kwargs)
-        self.df = self.df[self.df['dicom_uuid'].isin(self.get_valid_landmark_sequences(landmark_qc_path))]
+        # self.df = self.df[~self.df['dicom_uuid'].str.contains("0090")]
+        if landmark_qc_path:
+            self.df = self.df[self.df['dicom_uuid'].isin(self.get_valid_landmark_sequences(landmark_qc_path))]
 
     def get_valid_landmark_sequences(self, json_files_path):
         if not json_files_path:
@@ -145,35 +169,40 @@ class LandmarkDataModule(PatchlessnnUnetDataModule):
 if __name__ == "__main__":
     import pyrootutils
     import matplotlib
-    matplotlib.use('TkAgg')
+    # matplotlib.use('TkAgg')
     import matplotlib.pyplot as plt
 
     root = pyrootutils.setup_root(__file__, pythonpath=True)
 
-    dl = LandmarkDataModule(data_dir="/data/icardio/processed/",
+    dl = LandmarkDataModule(data_dir="/data/cardinal_landmarks/",
                             common_spacing=(0.37, 0.37, 1.0),
                             max_window_len=4,
-                            max_batch_size=None,
+                            max_batch_size=1,
                             dataset_name='',
-                            csv_file_name='subset_csv/merged_subset_w_split_0_1-18.csv',
-                            splits_column='splits_0',
+                            csv_file_name='cardinal.csv',
+                            splits_column='lm_split',
                             num_workers=1,
                             batch_size=1,
                             use_dataset_fraction=0.1,
-                            landmark_path='/data/icardio/processed/valve_landmarks_2/',
-                            landmark_qc_path='/home/local/USHERBROOKE/juda2901/dev/qc/landmarks2/')
+                            landmark_path='/data/cardinal_landmarks/landmarks/',
+                            landmark_qc_path=None) # '/home/local/USHERBROOKE/juda2901/dev/qc/landmarks2/')
     dl.setup()
     for batch in iter(dl.val_dataloader()):
         bimg = batch['image'].squeeze(0)
         blabel = batch['label'].squeeze(0)
+        b_lmcoords = batch['landmark_coords'].squeeze(0)
         print(bimg.shape)
         print(blabel.shape)
+        print(b_lmcoords.shape)
         plt.figure()
         plt.imshow(bimg[0, 0, :, :, 1].T)
 
-        plt.figure()
-        plt.imshow(blabel[0, 0, :, :, 1].T)
+        # plt.figure()
+        plt.imshow(blabel[0, 0, :, :, 1].T, alpha=0.35)
 
-        plt.figure()
-        plt.imshow(blabel[0, 1, :, :, 1].T)
+        # plt.figure()
+        plt.imshow(blabel[0, 1, :, :, 1].T, alpha=0.3)
+
+        plt.plot(b_lmcoords[0, 0, :, 1], b_lmcoords[0, 0, :, 0], 'x', c='r')
+
         plt.show()

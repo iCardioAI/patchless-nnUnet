@@ -19,7 +19,7 @@ def get_img_subpath(row):
     :param row: dataframe row with all columns filled in
     :return: string containing path to image file
     """
-    return f"{row['study']}/{row['view'].lower()}/{row['dicom_uuid']}_0000.nii.gz"
+    return f"{row['study']}/{str(row['view']).lower()}/{row['dicom_uuid']}_0000.nii.gz"
 
 class PatchlessnnUnetDataset(Dataset):
     def __init__(self,
@@ -233,31 +233,31 @@ class PatchlessnnUnetDataModule(LightningDataModule):
                 self.df.loc[self.test_idx, self.hparams.splits_column] = 'test'
                 self.df.to_csv(self.data_path + '/' + self.hparams.csv_file_name)
 
-        if stage == "fit" or stage is None:
-            self.data_train = self.hparams.dataset(self.df.loc[self.train_idx],
-                                                     data_path=self.data_path,
-                                                     common_spacing=common_spacing,
-                                                     max_window_len=self.hparams.max_window_len,
-                                                     use_dataset_fraction=self.hparams.use_dataset_fraction,
-                                                     max_batch_size=self.hparams.max_batch_size,
-                                                     max_tensor_volume=self.hparams.max_tensor_volume,
-                                                     shape_divisible_by=list(self.hparams.shape_divisible_by),
-                                                     *self.args,
-                                                     **self.kwargs,
-                                                     )
-            print(f"LEN OF TRAIN SET: {len(self.data_train)}")
-            self.data_val = self.hparams.dataset(self.df.loc[self.val_idx],
-                                                   data_path=self.data_path,
-                                                   common_spacing=common_spacing,
-                                                   max_window_len=self.hparams.max_window_len,
-                                                   use_dataset_fraction=self.hparams.use_dataset_fraction,
-                                                   max_batch_size=self.hparams.max_batch_size,
-                                                   max_tensor_volume=self.hparams.max_tensor_volume,
-                                                   shape_divisible_by=list(self.hparams.shape_divisible_by),
-                                                   *self.args,
-                                                   **self.kwargs,
-                                                   )
-            print(f"LEN OF VAL SET: {len(self.data_val)}")
+        #if stage == "fit" or stage is None:
+        self.data_train = self.hparams.dataset(self.df.loc[self.train_idx],
+                                                 data_path=self.data_path,
+                                                 common_spacing=common_spacing,
+                                                 max_window_len=self.hparams.max_window_len,
+                                                 use_dataset_fraction=self.hparams.use_dataset_fraction,
+                                                 max_batch_size=self.hparams.max_batch_size,
+                                                 max_tensor_volume=self.hparams.max_tensor_volume,
+                                                 shape_divisible_by=list(self.hparams.shape_divisible_by),
+                                                 *self.args,
+                                                 **self.kwargs,
+                                                 )
+        print(f"LEN OF TRAIN SET: {len(self.data_train)}")
+        self.data_val = self.hparams.dataset(self.df.loc[self.val_idx],
+                                               data_path=self.data_path,
+                                               common_spacing=common_spacing,
+                                               max_window_len=self.hparams.max_window_len,
+                                               use_dataset_fraction=self.hparams.use_dataset_fraction,
+                                               max_batch_size=self.hparams.max_batch_size,
+                                               max_tensor_volume=self.hparams.max_tensor_volume,
+                                               shape_divisible_by=list(self.hparams.shape_divisible_by),
+                                               *self.args,
+                                               **self.kwargs,
+                                               )
+        print(f"LEN OF VAL SET: {len(self.data_val)}")
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
             self.data_test = self.hparams.dataset(self.df.loc[self.test_idx],
@@ -277,7 +277,7 @@ class PatchlessnnUnetDataModule(LightningDataModule):
             batch_size=1,
             num_workers=max(self.hparams.num_workers, 1),
             pin_memory=self.hparams.pin_memory,
-            shuffle=False,
+            shuffle=True,
             persistent_workers=True,
         )
 

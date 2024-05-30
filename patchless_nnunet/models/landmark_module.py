@@ -11,7 +11,9 @@ import torch
 import torch.nn as nn
 from einops.einops import rearrange
 from lightning import LightningModule
-from matplotlib import pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 from monai.data import MetaTensor
 from lightning.pytorch.loggers import TensorBoardLogger, CometLogger
@@ -23,7 +25,7 @@ from torchvision.transforms.functional import adjust_contrast, rotate
 from patchless_nnunet.utils.inferers import SlidingWindowInferer
 from patchless_nnunet.utils.softmax import softmax_helper
 from patchless_nnunet.utils.tensor_utils import sum_tensor
-from patchless_nnunet.utils.custom_dsnt import flat_softmax, dsnt
+from patchless_nnunet.utils import custom_dsnt
 from patchless_nnunet.utils.coordinate_utils import CoordinateExtractor
 
 import torchio as tio
@@ -72,7 +74,7 @@ class nnUNetPatchlessLitModule(LightningModule):
 
         self.net = net
 
-        # loss function (CE - Dice), min = -1
+        # loss function
         self.loss = loss
 
         # parameter alpha for calculating moving average eval metrics
@@ -116,32 +118,61 @@ class nnUNetPatchlessLitModule(LightningModule):
         )
 
     def forward(self, img: Union[Tensor, MetaTensor]) -> Union[Tensor, MetaTensor]:  # noqa: D102
-        return self.net(img)
+        unnormalized_heatmaps = self.net(img)
+        return self.extract_coords(unnormalized_heatmaps)
+
+    def extract_coords(self, unnormalized_heatmaps) -> Union[Tensor, MetaTensor]:
+        heatmaps = custom_dsnt.flat_softmax(unnormalized_heatmaps)
+        coords = custom_dsnt.dsnt(heatmaps)
+        coords = coords.view(-1, coords.shape[2], coords.shape[1], coords.shape[-1])
+        return coords, heatmaps
+
+    def norm_to_coord(self, coords, img_shape):
+        return 0.5 * ((coords + 1) * torch.tensor(img_shape[-3:-1]).to(self.device) - 1)
+
+    def coord_to_norm(self, coords, img_shape):
+        return ((2 * coords + 1) / torch.tensor(img_shape[-3:-1]).to(self.device)) - 1
 
     def training_step(
         self, batch: dict[str, Tensor], batch_idx: int
     ) -> dict[str, Tensor]:  # noqa: D102
         # make sure to squeeze first dimension since batch comes from only one image
-        img, label, lm_points = batch["image"].squeeze(0), batch["label"].squeeze(0), batch['landmark_points'].squeeze(0)
+        img, label, lm_coords = batch["image"].squeeze(0), batch["label"].squeeze(0), \
+                                            batch['landmark_coords'].squeeze(0)
 
         # Need to handle carefully the multi-scale outputs from deep supervision heads
-        heatmaps = self.forward(img)#.permute((0, 4, 1, 2, 3)).contiguous()
-        # heatmaps = flat_softmax(heatmaps).permute((0, 2, 3, 4, 1)).contiguous()
-
-        # coords = dsnt(heatmaps)
-        loss = self.loss(heatmaps, label)
-
+        coords, heatmaps = self.forward(img)
+        # loss = self.loss(heatmaps, label)
+        coords = self.norm_to_coord(coords, img.shape)
         # Per-location euclidean losses
-        # euc_losses = dsntnn.euclidean_losses(coords, lm_points)
-        # # Per-location regularization losses
-        # #reg_losses = dsntnn.js_reg_losses(heatmaps, lm_points, sigma_t=1.0)
-        # # Combine losses into an overall loss
-        # loss = dsntnn.average_loss(euc_losses)# + reg_losses)
+        loss = self.loss(coords, lm_coords)
+
+        self.x_train_distances_r += list((lm_coords[..., 1, 1] - coords[..., 1, 1]).cpu().detach().numpy().flatten())
+        self.y_train_distances_r += list((lm_coords[..., 1, 0] - coords[..., 1, 0]).cpu().detach().numpy().flatten())
+        self.x_train_distances_l += list((lm_coords[..., 0, 1] - coords[..., 0, 1]).cpu().detach().numpy().flatten())
+        self.y_train_distances_l += list((lm_coords[..., 0, 0] - coords[..., 0, 0]).cpu().detach().numpy().flatten())
+
+        # landmarks = np.zeros_like(img.cpu().detach().numpy()).repeat(repeats=2, axis=1)
+        # landmark_points = coords.cpu().detach().numpy()
+        # for i in range(img.shape[-1]):
+        #     for j, point in enumerate(landmark_points[i]):
+        #         y = int((point[0] + 1) / 2 * img.shape[-3])
+        #         x = int((point[1] + 1) / 2 * img.shape[-2])
+        #         landmarks[:, j, x - 10:x + 10, y - 10:y + 10, i] = 1
+        #
+        # for i in range(img.shape[-1]):
+        #     plt.figure()
+        #     plt.imshow(img[0, 0, :, :, i].T.cpu().detach().numpy())
+        #     plt.imshow(label[0, 0, :, :, i].cpu().detach().numpy().T, alpha=0.3)
+        #     plt.imshow(landmarks[0, 0, :, :, i].T, alpha=0.25)
+        #     plt.imshow(label[0, 1, :, :, i].cpu().detach().numpy().T, alpha=0.3)
+        #     plt.imshow(landmarks[0, 1, :, :, i].T, alpha=0.25)
+        #     plt.show()
 
         self.log(
             "train/loss",
             loss,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             prog_bar=True,
             logger=True,
@@ -153,56 +184,109 @@ class nnUNetPatchlessLitModule(LightningModule):
     def on_train_epoch_end(self) -> None:
         # clear memory to avoid OOM when close to limit
         torch.cuda.empty_cache()
+        fig = plt.figure()
+        plt.scatter(self.x_train_distances_r, self.y_train_distances_r, c='b')
+        plt.scatter(self.x_train_distances_l, self.y_train_distances_l, c='r')
+        plt.axhline(0, color='black')
+        plt.axvline(0, color='black')
+        self.trainer.logger.experiment.log_figure("Train", fig, step=self.current_epoch)
+        plt.close()
+
+    def on_train_epoch_start(self) -> None:
+        self.x_train_distances_r = []
+        self.y_train_distances_r = []
+        self.x_train_distances_l = []
+        self.y_train_distances_l = []
+
+    def on_validation_epoch_start(self) -> None:
+        self.x_val_distances_r = []
+        self.y_val_distances_r = []
+        self.x_val_distances_l = []
+        self.y_val_distances_l = []
 
     def validation_step(
         self, batch: dict[str, Tensor], batch_idx: int
     ) -> dict[str, Tensor]:  # noqa: D102
         # squeeze first dim since batch comes from only one image
-        img, label, lm_points = batch["image"].squeeze(0), batch["label"].squeeze(0), batch['landmark_points'].squeeze(0)
+        img, label, lm_coords = batch["image"].squeeze(0), batch["label"].squeeze(0), \
+                                batch['landmark_coords'].squeeze(0)
+                                            # batch['landmark_points'].squeeze(0).squeeze(0), \
+
 
         # Only the highest resolution output is returned during the validation
-        heatmaps = self.forward(img)#.permute((0, 4, 1, 2, 3)).contiguous()
-        # heatmaps = flat_softmax(heatmaps).permute((0, 2, 3, 4, 1)).contiguous()
-
-        # coords = dsnt(heatmaps)
-        loss = self.loss(heatmaps, label)
-
-        # plt.figure()
-        # plt.imshow(label[0, 0, :, :, 0].cpu().detach().numpy())
-        # plt.figure()
-        # plt.imshow(label[0, 1, :, :, 0].cpu().detach().numpy())
-        # plt.show()
-
+        coords, heatmaps = self.forward(img)
+        # loss = self.loss(heatmaps, label)
+        coords = self.norm_to_coord(coords, img.shape)
         # Per-location euclidean losses
-        # euc_losses = dsntnn.euclidean_losses(coords, lm_points)
-        # # Per-location regularization losses
-        # #reg_losses = dsntnn.js_reg_losses(heatmaps, lm_points, sigma_t=1.0)
-        # # Combine losses into an overall loss
-        # loss = dsntnn.average_loss(euc_losses)# + reg_losses)
+        loss = self.loss(coords, lm_coords)
 
-        heatmaps = torch.round(torch.sigmoid(heatmaps))
+        self.x_val_distances_r += list((lm_coords[..., 1, 1] - coords[..., 1, 1]).cpu().detach().numpy().flatten())
+        self.y_val_distances_r += list((lm_coords[..., 1, 0] - coords[..., 1, 0]).cpu().detach().numpy().flatten())
+        self.x_val_distances_l += list((lm_coords[..., 0, 1] - coords[..., 0, 1]).cpu().detach().numpy().flatten())
+        self.y_val_distances_l += list((lm_coords[..., 0, 0] - coords[..., 0, 0]).cpu().detach().numpy().flatten())
+
+        landmarks = np.zeros_like(img.cpu().numpy()).repeat(repeats=2, axis=1)
+        landmarks_gt = np.zeros_like(img.cpu().numpy()).repeat(repeats=2, axis=1)
+        landmark_points = coords.cpu().numpy()
+        gt = lm_coords.cpu().numpy().astype(np.uint64)
+        for i in range(img.shape[-1]):
+            for j, point in enumerate(landmark_points[0, i]):
+                y = int(point[0])
+                x = int(point[1])
+                landmarks[:, j, x-10:x+10, y-10:y+10, i] = 1
+                b = int(gt[0, i, j, 0])
+                a = int(gt[0, i, j, 1])
+                landmarks_gt[:, j, a-5:a+5, b-5:b+5, i] = 1
+
+        # for i in range(img.shape[-1]):
+        #     plt.figure()
+        #     plt.imshow(img[0, 0, :, :, i].T.cpu().detach().numpy())
+        #     plt.imshow(landmarks_gt[0, 0, :, :, i].T, alpha=0.3)
+        #     plt.imshow(landmarks[0, 0, :, :, i].T, alpha=0.25)
+        #     plt.imshow(landmarks_gt[0, 1, :, :, i].T, alpha=0.3)
+        #     plt.imshow(landmarks[0, 1, :, :, i].T, alpha=0.25)
+        #     plt.show()
 
         self.validation_step_outputs.append({"val/loss": loss})
 
-        if batch_idx == 0:
+        if batch_idx % 10 == 0: #and self.current_epoch % 10 == 0:
             self.log_images(
                 title='sample',
                 num_images=1,
                 num_timesteps=min(img.shape[-1], 4),
                 axes_content={
                     'Image': img.squeeze(1).cpu().detach().numpy(),
-                    'Pred_1': heatmaps[:, 0, ...].cpu().detach().numpy(),
-                    'Pred_2': heatmaps[:, 1, ...].cpu().detach().numpy(),
-                    'Label_1': label[:, 0, ...].cpu().detach().numpy(),
-                    'Label_2': label[:, 1, ...].cpu().detach().numpy(),
-                }
+                    'Heatmaps_0': heatmaps[:, 0, ...].cpu().detach().numpy(),
+                    'Heatmaps_1': heatmaps[:, 1, ...].cpu().detach().numpy(),
+                    # 'Label_0_p': landmarks_gt[:, 0, ...],
+                    # 'Label_1_p': landmarks_gt[:, 1, ...],
+                    'Label_0': label[:, 0, ...].cpu().detach().numpy() + landmarks[:, 0, ...],
+                    'Label_1': label[:, 1, ...].cpu().detach().numpy() + landmarks[:, 1, ...],
+                },
+                info=[f"{batch_idx}"]
             )
 
-        return {"val/loss": loss}
+        # self.log(
+        #     "val/euc_loss",
+        #     euc_losses.mean(),
+        #     on_step=False,
+        #     on_epoch=True,
+        #     prog_bar=True,
+        #     logger=True,
+        #     batch_size=self.trainer.datamodule.hparams.batch_size,
+        #     sync_dist=True,
+        # )
 
-    def on_validation_epoch_end(self):  # noqa: D102
-        loss = self.metric_mean("val/loss", self.validation_step_outputs)
-
+        # self.log(
+        #         "val/reg_loss",
+        #         reg_losses.mean(),
+        #         on_step=False,
+        #         on_epoch=True,
+        #         prog_bar=True,
+        #         logger=True,
+        #         batch_size=self.trainer.datamodule.hparams.batch_size,
+        #         sync_dist=True,
+        # )
         self.log(
             "val/loss",
             loss,
@@ -213,6 +297,17 @@ class nnUNetPatchlessLitModule(LightningModule):
             batch_size=self.trainer.datamodule.hparams.batch_size,
             sync_dist=True,
         )
+        return {"val/loss": loss}
+
+    def on_validation_epoch_end(self):  # noqa: D102
+        fig = plt.figure()
+        plt.scatter(self.x_val_distances_r, self.y_val_distances_r, c='b')
+        plt.scatter(self.x_val_distances_l, self.y_val_distances_l, c='r')
+        plt.axhline(0, color='black')
+        plt.axvline(0, color='black')
+        self.trainer.logger.experiment.log_figure("Val", fig, step=self.current_epoch)
+        plt.close()
+
         # clear memory to avoid OOM when close to limit
         torch.cuda.empty_cache()
 
@@ -234,29 +329,58 @@ class nnUNetPatchlessLitModule(LightningModule):
     def test_step(
         self, batch: dict[str, Tensor], batch_idx: int
     ) -> dict[str, Tensor]:  # noqa: D102
-        img, label, properties_dict, label_points = batch["image"], batch["label"], batch["image_meta_dict"], batch["landmark_points"]
+        img, label, properties_dict, lm_coords = batch["image"], batch["label"], \
+                                                                  batch["image_meta_dict"], \
+                                                                  batch["landmark_coords"]
 
         self.patch_size = list([img.shape[-3], img.shape[-2], self.hparams.sliding_window_len])
         self.inferer.roi_size = self.patch_size
 
-        start_time = time.time()
-        preds = self.tta_predict(img, apply_softmax=False) if self.hparams.tta else self.predict(img, apply_softmax=False)
-        print(f"\nPrediction took {round(time.time() - start_time, 4)} (s).")
+        # img = img.squeeze(0)
+        # label = label.squeeze(0)
+        # label_points = label_points.squeeze(0)
 
-        preds = torch.sigmoid(preds)
+        # start_time = time.time()
+        # preds = self.tta_predict(img, apply_softmax=False) if self.hparams.tta else self.predict(img, apply_softmax=False)
+        # print(f"\nPrediction took {round(time.time() - start_time, 4)} (s).")
+        #
+        # coords, heatmaps = self.extract_coords(preds)
+        # coords = self.norm_to_coord(coords, img.shape)
+        # loss = self.loss(coords, lm_coords)
 
-        estim_coords = self.coords_extractor(preds.squeeze(0).cpu().detach())
-        estim_coords_norm = estim_coords.copy()
-        estim_coords_norm[:, :, 0] = ((estim_coords_norm[:, :, 0] / img.shape[-3]) * 2) - 1
-        estim_coords_norm[:, :, 1] = ((estim_coords_norm[:, :, 1] / img.shape[-3]) * 2) - 1
-        eucl_dist = np.sqrt(np.power(estim_coords_norm - label_points.cpu().numpy().squeeze(0), 2).sum(axis=-1))
+        # heatmaps = preds.squeeze(0).contiguous().view(preds.shape[-1], *preds.shape[1:-1])
+        # heatmaps = dsntnn.flat_softmax(heatmaps)
+        # coords = dsntnn.dsnt(heatmaps)
+        # heatmaps = heatmaps.view(-1, *heatmaps.shape[1:], heatmaps.shape[0])
 
-        label_points = label_points.cpu().numpy().squeeze(0)
-        label_points[:, :, 0] = ((label_points[:, :, 0] + 1) / 2) * img.shape[-3]
-        label_points[:, :, 1] = ((label_points[:, :, 1] + 1) / 2) * img.shape[-2]
-        label_points = label_points.astype(int)
+        max_idx = img.shape[-1] - (img.shape[-1] % self.hparams.sliding_window_len)
+        lm_coords = lm_coords[:, :max_idx]
+        coords = torch.zeros_like(lm_coords)
+        for i in range(0, img.shape[-1] - self.hparams.sliding_window_len, self.hparams.sliding_window_len):
+            coords_s, heatmap_s = self.forward(img[..., i:i+self.hparams.sliding_window_len])
+            coords[:, i:i+self.hparams.sliding_window_len, ...] = self.norm_to_coord(coords_s, img[..., i:i+self.hparams.sliding_window_len].shape)
 
-        # for i in range(min(preds.shape[-1], 5)):
+        loss = self.loss(coords, lm_coords)
+
+        landmarks = np.zeros_like(img.cpu().numpy()).repeat(repeats=2, axis=1)
+        landmark_points = coords.cpu().numpy()
+        for i in range(landmark_points.shape[1]):
+            for j, point in enumerate(landmark_points[0, i]):
+                y = int(point[0])
+                x = int(point[1])
+                landmarks[:, j, x - 5:x + 5, y - 5:y + 5, i] = 1
+
+        coords = coords[0].cpu().numpy()
+        plt.figure()
+        for i in range(len(coords)):
+            plt.imshow(img[0, 0, :, :, i].T.cpu().detach().numpy())
+            plt.imshow(label[0, 0, :, :, i].cpu().detach().numpy().T, alpha=0.3)
+            plt.imshow(landmarks[0, 0, :, :, i].T, alpha=0.25)
+            plt.imshow(label[0, 1, :, :, i].cpu().detach().numpy().T, alpha=0.3)
+            plt.imshow(landmarks[0, 1, :, :, i].T, alpha=0.25)
+            plt.show()
+
+        # for i in range(min(preds.shape[-1], 1)):
         #     plt.figure()
         #     plt.imshow(img[0, ..., i].cpu().detach().numpy().T, cmap='grey')
         #     plt.imshow(preds[0, 0, ..., i].cpu().detach().numpy().T, alpha=0.3, cmap='jet')
@@ -267,14 +391,53 @@ class nnUNetPatchlessLitModule(LightningModule):
         #     plt.title(eucl_dist[i])
         # plt.show()
 
+        import matplotlib.animation as animation
+
+        fig, ax = plt.subplots()
+
+        # est0 = ax.scatter(x=coords[0, 0, 1], y=coords[0, 0, 0], c='g')
+        # est1 = ax.scatter(x=coords[0, 0, 1], y=coords[0, 0, 0], c='g')
+        # lab0 = ax.scatter(x=label_points[0, 1, 1], y=label_points[0, 1, 0], c='r')
+        # lab1 = ax.scatter(x=label_points[0, 1, 1], y=label_points[0, 1, 0], c='r')
+        im = ax.imshow(img[0, ..., 0].cpu().detach().numpy().T, cmap='grey')
+        l0 = ax.imshow(label[0, 0, ..., 0].cpu().detach().numpy().T, alpha=0.3, cmap='jet')
+        l1 = ax.imshow(label[0, 1, ..., 0].cpu().detach().numpy().T, alpha=0.3, cmap='jet')
+        p0 = ax.imshow(landmarks[0, 0, ..., 0].T, alpha=0.3, cmap='jet')
+        p1 = ax.imshow(landmarks[0, 1, ..., 0].T, alpha=0.3, cmap='jet')
+        def animate(i):
+            im.set_array(img[0, ..., i].cpu().detach().numpy().T)
+            p0.set_array(landmarks[0, 0, ..., i].T)
+            p1.set_array(landmarks[0, 1, ..., i].T)
+            l0.set_array(label[0, 0, ..., i].cpu().detach().numpy().T)
+            l1.set_array(label[0, 1, ..., i].cpu().detach().numpy().T)
+
+            # est0.set_offsets((coords[i, 0, 1], coords[i, 0, 0]))
+            # est1.set_offsets((coords[i, 1, 1], coords[i, 1, 0]))
+            # lab0.set_offsets((label_points[i, 0, 1], label_points[i, 0, 0]))
+            # lab1.set_offsets((label_points[i, 1, 1], label_points[i, 1, 0]))
+            return im, p0, p1, l0, l1
+
+        ani = animation.FuncAnimation(fig, animate, repeat=True,
+                                      frames=len(coords) - 1, interval=50)
+
+        # To save the animation using Pillow as a gif
+        writer = animation.PillowWriter(fps=10,
+                                        metadata=dict(artist='Me'),
+                                        bitrate=1800)
+        ani.save(f"{properties_dict.get('case_identifier')[0]}.gif", writer=writer)
+
+        #plt.show()
+        plt.close()
+
+
         self.log_images(
             title=f'test_{batch_idx}',
             num_images=1,
             num_timesteps=min(img.shape[-1], 4),
             axes_content={
                 'Image': img.squeeze(1).cpu().detach().numpy(),
-                'Pred_1': preds[:, 0, ...].cpu().detach().numpy(),
-                'Pred_2': preds[:, 1, ...].cpu().detach().numpy(),
+                # 'Pred_1': preds[:, 0, ...].cpu().detach().numpy(),
+                # 'Pred_2': preds[:, 1, ...].cpu().detach().numpy(),
                 'Label_1': label[:, 0, ...].cpu().detach().numpy(),
                 'Label_2': label[:, 1, ...].cpu().detach().numpy(),
             }
@@ -300,50 +463,17 @@ class nnUNetPatchlessLitModule(LightningModule):
 
             self.save_mask(final_preds, fname, spacing.astype(np.float64), save_dir)
 
-        self.test_step_outputs.append({"test/euclid_dist_l": torch.tensor(eucl_dist[:, 0]).mean()})
-        self.test_step_outputs.append({"test/euclid_dist_r": torch.tensor(eucl_dist[:, 1]).mean()})
-        self.test_step_outputs.append({"test/euclid_dist": torch.tensor(eucl_dist).mean()})
-
-        return {"test/euclid_dist_l": eucl_dist[:, 0].mean(),
-                "test/euclid_dist_r": eucl_dist[:, 1].mean(),
-                "test/euclid_dist": eucl_dist.mean()}
-
-    def on_test_epoch_end(self):  # noqa: D102
-        mean_euclid_l = self.metric_mean("test/euclid_dist_l", self.test_step_outputs)
-        mean_euclid_r = self.metric_mean("test/euclid_dist_r", self.test_step_outputs)
-        mean_euclid = self.metric_mean("test/euclid_dist", self.test_step_outputs)
-        self.test_step_outputs.clear()  # free memory
-
         self.log(
-            "test/mean_euclid_dist_l",
-            mean_euclid_l,
+            "test/loss",
+            loss,
             on_step=False,
             on_epoch=True,
-            prog_bar=False,
+            prog_bar=True,
             logger=True,
             batch_size=self.trainer.datamodule.hparams.batch_size,
-            sync_dist=True
+            sync_dist=True,
         )
-        self.log(
-            "test/mean_euclid_dist_r",
-            mean_euclid_r,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=False,
-            logger=True,
-            batch_size=self.trainer.datamodule.hparams.batch_size,
-            sync_dist=True
-        )
-        self.log(
-            "test/mean_euclid_dist",
-            mean_euclid,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=False,
-            logger=True,
-            batch_size=self.trainer.datamodule.hparams.batch_size,
-            sync_dist=True
-        )
+
 
     def on_predict_start(self) -> None:  # noqa: D102
         super().on_predict_start()
@@ -670,7 +800,7 @@ class nnUNetPatchlessLitModule(LightningModule):
                             axes[k, j].imshow(imgs[i, ..., k].squeeze().T)
                         if len(imgs.shape) == 5:  # blend
                             axes[k, j].imshow(imgs[0, i, ..., k].squeeze().T)
-                            axes[k, j].imshow(imgs[1, i, ..., k].squeeze().T, alpha=0.3)
+                            axes[k, j].imshow(imgs[1, i, ..., k].squeeze().T, cmap='jet')
                         if k == 0:
                             axes[0, j].set_title(ax_title)
                         axes[k, j].tick_params(left=False,

@@ -8,3 +8,5 @@ gradient_clip_val: 12
 
 # mixed precision for extra speed-up
 precision: 16-mixed
+
+accumulate_grad_batches: 8
