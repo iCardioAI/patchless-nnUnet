@@ -124,14 +124,12 @@ class nnUNetPatchlessLitModule(LightningModule):
     def extract_coords(self, unnormalized_heatmaps) -> Union[Tensor, MetaTensor]:
         heatmaps = custom_dsnt.flat_softmax(unnormalized_heatmaps)
         coords = custom_dsnt.dsnt(heatmaps)
-        coords = coords.view(-1, coords.shape[2], coords.shape[1], coords.shape[-1])
+        # Permute, do not invert last dim, as it changes ordering of values
+        coords = coords.permute((0, 2, 1, 3))
         return coords, heatmaps
 
     def norm_to_coord(self, coords, img_shape):
-        return 0.5 * ((coords + 1) * torch.tensor(img_shape[-3:-1]).to(self.device) - 1)
-
-    def coord_to_norm(self, coords, img_shape):
-        return ((2 * coords + 1) / torch.tensor(img_shape[-3:-1]).to(self.device)) - 1
+        return (0.5 * (coords + 1)) * torch.tensor(img_shape[-3:-1]).flip(dims=(0,)).to(self.device)
 
     def training_step(
         self, batch: dict[str, Tensor], batch_idx: int

@@ -14,7 +14,7 @@ def linear_expectation(probs, values):
             if i != j:
                 marg = marg.sum(j, keepdim=False)
         # Calculate expectation along axis `i`
-        expectation.append(((marg.view(-1, marg.shape[-2]) * values[len(expectation)]).view(marg.shape)).sum(-2, keepdim=False))
+        expectation.append((marg * values[len(expectation)].unsqueeze(-1)).sum(-2, keepdim=False))
     return torch.stack(expectation, -1)
 
 
