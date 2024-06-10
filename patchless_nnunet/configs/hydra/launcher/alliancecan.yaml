@@ -12,6 +12,9 @@ setup:
   - cd ${paths.data_dir}; cd ..; tar -cf - ${paths.data_dir} | tar -xf -c -C $SLURM_TMPDIR/patchless-nnUnet/data/ # faster way to copy
   # -  cd a/icardio_subset/; cd ..; tar -cf - icardio_subset/ | tar -xf - -C ../b/c/
   - "export PNNU_DATA_PATH=$SLURM_TMPDIR/patchless-nnUnet/data" # override the previous data path with the path on the compute node
+  - "export NCCL_DEBUG=INFO"
+  - "export PYTHONFAULTHANDLER=1"
+  - "TORCH_DISTRIBUTED_DEBUG=DETAIL"
 
 additional_parameters:
   mail-user: ${oc.env:SLURM_MAIL_USER,null}
