@@ -8,8 +8,8 @@ setup:
   # TODO Improve copy of data to compute node, by only copying the specific dataset required
   # We tried to do this by interpolating the {datamodule.dataset_name} config node, but Hydra doesn't seem to have
   # access to most of the config tree at the stage when it parses the current config group
-  # - "rsync -a ${paths.data_dir}/ $SLURM_TMPDIR/patchless-nnUnet/data" # copy the dataset to the compute node
-  - cd ${paths.data_dir}; cd ..; tar -cf - "$(basename ${paths.data_dir})" | tar -xf - -C $SLURM_TMPDIR/patchless-nnUnet/data/ # faster way to copy
+  - "rsync -a ${paths.data_dir}/ $SLURM_TMPDIR/patchless-nnUnet/data" # copy the dataset to the compute node
+  #- cd ${paths.data_dir}; cd ..; tar -cf - "$(basename ${paths.data_dir})" | tar -xf - -C $SLURM_TMPDIR/patchless-nnUnet/data/ # faster way to copy
   # -  cd a/icardio_subset/; cd ..; tar -cf - "$(basename ../a/icardio_subset/)" | tar -xf - -C ../b/c/
   - "export PNNU_DATA_PATH=$SLURM_TMPDIR/patchless-nnUnet/data" # override the previous data path with the path on the compute node
   - "export NCCL_DEBUG=INFO"
