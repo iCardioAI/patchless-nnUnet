@@ -15,7 +15,7 @@ save_npz: False
 name: landmark
 
 common_spacing: [0.37, 0.37, 1]
-sliding_window_len: 16
+sliding_window_len: 32
 
 net:
   in_channels: 1

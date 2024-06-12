@@ -41,6 +41,9 @@ class LandmarkDataset(PatchlessnnUnetDataset):
         landmark_points = np.load(self.landmark_path + sub_path.replace("_0000", "").replace(".nii.gz", ".npy"))
         original_shape = np.asarray(list(img.shape))
 
+        # img = img[..., :4]
+        # landmark_points = landmark_points[:4]
+
         # limit size of tensor so it can fit on GPU
         if not self.test:
             if img.shape[0] * img.shape[1] * img.shape[2] > self.max_tensor_volume:
@@ -55,14 +58,14 @@ class LandmarkDataset(PatchlessnnUnetDataset):
         resampled = transform(tio.ScalarImage(tensor=np.expand_dims(img, 0), affine=img_nifti.affine))
 
         desired_shape = self.get_desired_size(resampled.shape[1:])
+        start_idx = np.random.randint(low=0, high=max(img.shape[-1] - desired_shape[-1], 1))
+        img = img[..., start_idx:start_idx + desired_shape[-1]]
+        landmark_points = landmark_points[start_idx:start_idx + desired_shape[-1], ...]
+
         croporpad = tio.CropOrPad((*desired_shape[:-1], img.shape[-1]))
         resampled_cropped = croporpad(resampled)
         resampled_affine = resampled_cropped.affine
         img = resampled_cropped.tensor
-
-        # TODO: fix this!!!!!
-        img = img[..., :desired_shape[-1]]
-        landmark_points = landmark_points[:desired_shape[-1], ...]
 
         landmark_points[..., 0] = landmark_points[..., 0] / original_shape[-2] * img.shape[-2]
         landmark_points[..., 1] = landmark_points[..., 1] / original_shape[-3] * img.shape[-3]
@@ -79,16 +82,18 @@ class LandmarkDataset(PatchlessnnUnetDataset):
                 # landmark_points_norm[i, j, 1] = (point[1] / original_shape[0] * 2) - 1
 
                 landmarks[j, x, y, i] = 1
-                landmarks[j, ..., i] = gaussian_filter(landmarks[j, ..., i], sigma=10)
-                landmarks[j, ..., i] = (landmarks[j, ..., i] - np.min(landmarks[j, ..., i])) / \
-                                         (np.max(landmarks[j, ..., i]) - np.min(landmarks[j, ..., i]))
+                landmarks[j, ..., i] = gaussian_filter(landmarks[j, ..., i], sigma=1.0)
+                # landmarks[j, ..., i] = (landmarks[j, ..., i] - np.min(landmarks[j, ..., i])) / \
+                #                          (np.max(landmarks[j, ..., i]) - np.min(landmarks[j, ..., i]))
+        #         print(landmarks[j, ..., i].sum())
+        # print(landmarks.sum())
         # from matplotlib import pyplot as plt
         # plt.figure()
         # for i in range(img.shape[-1]):
         #     plt.imshow(img[0, :, :, i].T)
         #     plt.imshow(landmarks[0, :, :, i].T, alpha=0.3)
         #     plt.imshow(landmarks[1, :, :, i].T, alpha=0.3)
-        #     plt.plot(landmark_points[i, :, 1], landmark_points[i, :, 0], 'x', c='r')
+        #     #plt.plot(landmark_points[i, :, 1], landmark_points[i, :, 0], 'x', c='r')
         #     plt.show()
 
         landmarks = torch.tensor(landmarks)
@@ -120,16 +125,8 @@ class LandmarkDataset(PatchlessnnUnetDataset):
                 landmarks = landmarks.unsqueeze(0)
                 landmark_points = landmark_points.unsqueeze(0)
 
-        # landmark_coords = (0.5 * (landmark_points_norm.type(torch.float32) + 1) * torch.tensor(img.shape[-3:-1]))
-        # print(landmark_coords)
-        # print(landmark_points_norm[0, 0])
-        # print(landmark_points[0, 0])
-        # landmark_coords = torch.tensor(landmark_points).unsqueeze(0)
-        # print(landmark_coords)
-
         return {'image': img.type(torch.float32),
                 'label': landmarks.type(torch.float32),
-                # 'landmark_points': landmark_points_norm.type(torch.float32),
                 'landmark_coords': landmark_points.type(torch.float32),
                 'image_meta_dict': {'case_identifier': self.df.iloc[idx]['dicom_uuid'],
                                     'original_shape': original_shape,
@@ -143,7 +140,6 @@ class LandmarkDataset(PatchlessnnUnetDataset):
 class LandmarkDataModule(PatchlessnnUnetDataModule):
     def __init__(self, dataset=LandmarkDataset, landmark_qc_path=None, *args, **kwargs):
         super().__init__(dataset=dataset, *args, **kwargs)
-        # self.df = self.df[~self.df['dicom_uuid'].str.contains("0090")]
         if landmark_qc_path:
             self.df = self.df[self.df['dicom_uuid'].isin(self.get_valid_landmark_sequences(landmark_qc_path))]
 
