@@ -133,18 +133,18 @@ class nnUNetPatchlessLitModule(LightningModule):
         return (0.5 * (coords + 1)) * torch.tensor(img_shape[-3:-1]).flip(dims=(0,)).to(self.device)
 
     def reg_term(self, coords):
-        # v1
-        reg = torch.zeros_like(coords)
-        winlen = 4
-        for i in range(coords.shape[1]):
-            reg[0, i] = (coords.squeeze(0)[max(0, i-winlen):i+winlen].mean(dim=0) - coords.squeeze(0)[i])**2
+        # v1 (Cardinal Validation lm_coords (GT): 2.94)
+        # reg = torch.zeros_like(coords)
+        # winlen = 4
+        # for i in range(coords.shape[1]):
+        #     reg[0, i] = (coords.squeeze(0)[max(0, i-winlen):i+winlen].mean(dim=0) - coords.squeeze(0)[i])**2
 
-        # v2
-        # shift_l = torch.roll(coords.clone(), 1, dims=-1)
-        # shift_l[0, -1] = coords[0, -1]
-        # shift_r = torch.roll(coords.clone(), -1, dims=-1)
-        # shift_r[0, 0] = coords[0, 0]
-        # reg = torch.abs(shift_r - coords) + torch.abs(shift_l - coords)
+        # v2 (Cardinal Validation lm_coords (GT): 3.65)
+        shift_l = torch.roll(coords.clone(), 1, dims=1)
+        shift_l[0, -1] = coords[0, -1]
+        shift_r = torch.roll(coords.clone(), -1, dims=1)
+        shift_r[0, 0] = coords[0, 0]
+        reg = torch.abs(shift_r - coords) + torch.abs(shift_l - coords)
 
         return reg
 
@@ -400,7 +400,7 @@ class nnUNetPatchlessLitModule(LightningModule):
                                         bitrate=1800)
         ani.save(f"./animations/{properties_dict.get('case_identifier')[0]}.gif", writer=writer)
 
-        #plt.show()
+        # plt.show()
         plt.close()
 
 
