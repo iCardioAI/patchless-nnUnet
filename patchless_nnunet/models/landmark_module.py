@@ -398,7 +398,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         writer = animation.PillowWriter(fps=10,
                                         metadata=dict(artist='Me'),
                                         bitrate=1800)
-        ani.save(f"{properties_dict.get('case_identifier')[0]}.gif", writer=writer)
+        ani.save(f"./animations/{properties_dict.get('case_identifier')[0]}.gif", writer=writer)
 
         #plt.show()
         plt.close()
