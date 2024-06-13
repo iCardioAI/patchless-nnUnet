@@ -181,7 +181,6 @@ class nnUNetPatchlessLitModule(LightningModule):
             batch_size=self.trainer.datamodule.hparams.batch_size,
             sync_dist=True,
         )
-
         self.log(
             "train/mse",
             mse,
@@ -192,7 +191,6 @@ class nnUNetPatchlessLitModule(LightningModule):
             batch_size=self.trainer.datamodule.hparams.batch_size,
             sync_dist=True,
         )
-
         self.log(
             "train/loss",
             loss,
@@ -285,7 +283,6 @@ class nnUNetPatchlessLitModule(LightningModule):
             batch_size=self.trainer.datamodule.hparams.batch_size,
             sync_dist=True,
         )
-
         self.log(
             "val/mse",
             mse,
@@ -296,7 +293,6 @@ class nnUNetPatchlessLitModule(LightningModule):
             batch_size=self.trainer.datamodule.hparams.batch_size,
             sync_dist=True,
         )
-
         self.log(
             "val/loss",
             loss,
@@ -482,7 +478,6 @@ class nnUNetPatchlessLitModule(LightningModule):
             sync_dist=True,
         )
 
-
     def on_predict_start(self) -> None:  # noqa: D102
         super().on_predict_start()
         if self.trainer.datamodule is None:
@@ -550,44 +545,6 @@ class nnUNetPatchlessLitModule(LightningModule):
         if self.hparams.optimizer_monitor is not None:
             configured_optimizer['monitor'] = 'val/mean_dice'
         return configured_optimizer
-
-    def on_save_checkpoint(self, checkpoint: dict) -> None:
-        """Save extra information in checkpoint, i.e. the evaluation metrics for all epochs.
-
-        Args:
-            checkpoint: Checkpoint dictionary.
-        """
-        checkpoint["all_val_eval_metrics"] = self.all_val_eval_metrics
-
-    def on_load_checkpoint(self, checkpoint: dict) -> None:
-        """Load information from checkpoint to class attribute, i.e. the evaluation metrics for all
-        epochs.
-
-        Args:
-            checkpoint: Checkpoint dictionary.
-        """
-        self.all_val_eval_metrics = checkpoint["all_val_eval_metrics"]
-
-    def compute_loss(
-        self, preds: Union[Tensor, MetaTensor], label: Union[Tensor, MetaTensor]
-    ) -> float:
-        """Compute the multi-scale loss if deep supervision is set to True.
-
-        Args:
-            preds: Predicted logits.
-            label: Ground truth label.
-
-        Returns:
-            Train loss.
-        """
-        if self.net.deep_supervision:
-            loss = self.loss(preds[0], label)
-            for i, pred in enumerate(preds[1:]):
-                downsampled_label = nn.functional.interpolate(label, pred.shape[2:])
-                loss += 0.5 ** (i + 1) * self.loss(pred, downsampled_label)
-            c_norm = 1 / (2 - 2 ** (-len(preds)))
-            return c_norm * loss
-        return self.loss(preds, label)
 
     def predict(
         self, image: Union[Tensor, MetaTensor], apply_softmax: bool = True
@@ -706,19 +663,6 @@ class nnUNetPatchlessLitModule(LightningModule):
         )
 
     @staticmethod
-    def metric_mean(name: str, outputs: list[dict[str, Tensor]]) -> Tensor:
-        """Average metrics across batch dimension at epoch end.
-
-        Args:
-            name: Name of metrics to average.
-            outputs: List containing outputs dictionary returned at step end.
-
-        Returns:
-            Averaged metrics tensor.
-        """
-        return torch.stack([out[name] for out in outputs if out.get(name)]).mean(dim=0)
-
-    @staticmethod
     def get_properties(image_meta_dict: dict) -> OrderedDict:
         """Convert values in image meta dictionary loaded from torch.tensor to normal list/boolean.
 
@@ -744,43 +688,6 @@ class nnUNetPatchlessLitModule(LightningModule):
         ].tolist()
 
         return properties_dict
-
-    def save_mask(
-        self, preds: np.ndarray, fname: str, spacing: np.ndarray, save_dir: Union[str, Path]
-    ) -> None:
-        """Save segmentation mask to the given save directory.
-
-        Args:
-            preds: Predicted segmentation mask.
-            fname: Filename to save.
-            spacing: Spacing to save the segmentation mask.
-            save_dir: Directory to save the segmentation mask.
-        """
-        print(f"Saving segmentation for {fname}... in {save_dir}")
-
-        os.makedirs(save_dir, exist_ok=True)
-
-        preds = preds.astype(np.uint8)
-        itk_image = sitk.GetImageFromArray(rearrange(preds, "w h d ->  d h w"))
-        itk_image.SetSpacing(spacing)
-        sitk.WriteImage(itk_image, os.path.join(save_dir, str(fname) + ".nii.gz"))
-
-    def update_eval_criterion_MA(self):
-        """Update moving average validation loss."""
-        if self.val_eval_criterion_MA is None:
-            self.val_eval_criterion_MA = self.all_val_eval_metrics[-1]
-        else:
-            self.val_eval_criterion_MA = (
-                self.val_eval_criterion_alpha * self.val_eval_criterion_MA
-                + (1 - self.val_eval_criterion_alpha) * self.all_val_eval_metrics[-1]
-            )
-
-    def maybe_update_best_val_eval_criterion_MA(self):
-        """Update moving average validation metrics."""
-        if self.best_val_eval_criterion_MA is None:
-            self.best_val_eval_criterion_MA = self.val_eval_criterion_MA
-        if self.val_eval_criterion_MA > self.best_val_eval_criterion_MA:
-            self.best_val_eval_criterion_MA = self.val_eval_criterion_MA
 
     def log_images(
         self, title: str, num_images: int, num_timesteps: int, axes_content: Dict[str, np.ndarray], info: Optional[List[str]] = None
