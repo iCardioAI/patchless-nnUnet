@@ -46,6 +46,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         scheduler: torch.optim.lr_scheduler._LRScheduler,
         optimizer_monitor: str = None,
         tta: bool = True,
+        reg_lambda: float = 1.0,
         sliding_window_len: int = 4,
         sliding_window_overlap: float = 0.5,
         sliding_window_importance_map: bool = "gaussian",
@@ -131,6 +132,22 @@ class nnUNetPatchlessLitModule(LightningModule):
     def norm_to_coord(self, coords, img_shape):
         return (0.5 * (coords + 1)) * torch.tensor(img_shape[-3:-1]).flip(dims=(0,)).to(self.device)
 
+    def reg_term(self, coords):
+        # v1
+        reg = torch.zeros_like(coords)
+        winlen = 4
+        for i in range(coords.shape[1]):
+            reg[0, i] = (coords.squeeze(0)[max(0, i-winlen):i+winlen].mean(dim=0) - coords.squeeze(0)[i])**2
+
+        # v2
+        # shift_l = torch.roll(coords.clone(), 1, dims=-1)
+        # shift_l[0, -1] = coords[0, -1]
+        # shift_r = torch.roll(coords.clone(), -1, dims=-1)
+        # shift_r[0, 0] = coords[0, 0]
+        # reg = torch.abs(shift_r - coords) + torch.abs(shift_l - coords)
+
+        return reg
+
     def training_step(
         self, batch: dict[str, Tensor], batch_idx: int
     ) -> dict[str, Tensor]:  # noqa: D102
@@ -144,12 +161,26 @@ class nnUNetPatchlessLitModule(LightningModule):
         # reg = custom_dsnt.js_reg_losses(heatmaps, label)
         # euc = custom_dsnt.euclidean_losses(coords, lm_coords)
         # loss = reg.mean() + euc.mean()
-        loss = mse
+
+        reg = self.reg_term(coords)
+
+        loss = mse + self.hparams.reg_lambda * reg.mean()
 
         self.x_train_distances_r += list((lm_coords[..., 1, 1] - coords[..., 1, 1]).cpu().detach().numpy().flatten())
         self.y_train_distances_r += list((lm_coords[..., 1, 0] - coords[..., 1, 0]).cpu().detach().numpy().flatten())
         self.x_train_distances_l += list((lm_coords[..., 0, 1] - coords[..., 0, 1]).cpu().detach().numpy().flatten())
         self.y_train_distances_l += list((lm_coords[..., 0, 0] - coords[..., 0, 0]).cpu().detach().numpy().flatten())
+
+        self.log(
+            "train/reg_term",
+            reg.mean(),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=self.trainer.datamodule.hparams.batch_size,
+            sync_dist=True,
+        )
 
         self.log(
             "train/mse",
@@ -210,7 +241,12 @@ class nnUNetPatchlessLitModule(LightningModule):
         # reg = custom_dsnt.js_reg_losses(heatmaps, label)
         # euc = custom_dsnt.euclidean_losses(coords, lm_coords)
         # loss = reg.mean() + euc.mean()
-        loss = mse
+
+        reg = self.reg_term(coords)
+
+        loss = mse + self.hparams.reg_lambda * reg.mean()
+
+        # log spacing from center
         self.x_val_distances_r += list((lm_coords[..., 1, 1] - coords[..., 1, 1]).cpu().detach().numpy().flatten())
         self.y_val_distances_r += list((lm_coords[..., 1, 0] - coords[..., 1, 0]).cpu().detach().numpy().flatten())
         self.x_val_distances_l += list((lm_coords[..., 0, 1] - coords[..., 0, 1]).cpu().detach().numpy().flatten())
@@ -238,6 +274,17 @@ class nnUNetPatchlessLitModule(LightningModule):
                 },
                 info=[f"{batch_idx}"]
             )
+
+        self.log(
+            "val/reg_term",
+            reg.mean(),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=self.trainer.datamodule.hparams.batch_size,
+            sync_dist=True,
+        )
 
         self.log(
             "val/mse",
@@ -306,7 +353,13 @@ class nnUNetPatchlessLitModule(LightningModule):
         coords, heatmaps = self.extract_coords(preds)
         coords = self.norm_to_coord(coords, img.shape)
 
-        loss = self.loss(coords, lm_coords)
+        mse = self.loss(coords, lm_coords)
+        reg = self.reg_term(coords)
+        loss = mse + self.hparams.reg_lambda * reg.mean()
+
+        med_ae = torch.abs(coords - lm_coords).median()
+        mae = torch.abs(coords - lm_coords).mean()
+        mse = ((coords - lm_coords)**2).mean()
 
         landmarks = np.zeros_like(img.cpu().numpy()).repeat(repeats=2, axis=1)
         landmark_points = coords[0].cpu().numpy()
@@ -388,6 +441,36 @@ class nnUNetPatchlessLitModule(LightningModule):
 
             self.save_mask(final_preds, fname, spacing.astype(np.float64), save_dir)
 
+        self.log(
+            "test/MAE",
+            mae,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=self.trainer.datamodule.hparams.batch_size,
+            sync_dist=True,
+        )
+        self.log(
+            "test/MedianAE",
+            med_ae,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=self.trainer.datamodule.hparams.batch_size,
+            sync_dist=True,
+        )
+        self.log(
+            "test/MSE",
+            mse,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=self.trainer.datamodule.hparams.batch_size,
+            sync_dist=True,
+        )
         self.log(
             "test/loss",
             loss,
