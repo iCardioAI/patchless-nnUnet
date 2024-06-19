@@ -38,6 +38,7 @@ class LandmarkDataset(PatchlessnnUnetDataset):
         sub_path = get_img_subpath(self.df.iloc[idx])
         img_nifti = nib.load(self.data_path + '/img/' + sub_path)
         img = img_nifti.get_fdata() / 255
+        mask = nib.load(self.data_path + '/segmentation/' + sub_path.replace("_0000", "")).get_fdata()
         landmark_points = np.load(self.landmark_path + sub_path.replace("_0000", "").replace(".nii.gz", ".npy"))
         original_shape = np.asarray(list(img.shape))
 
@@ -45,6 +46,7 @@ class LandmarkDataset(PatchlessnnUnetDataset):
         # landmark_points = landmark_points[:4]
 
         # limit size of tensor so it can fit on GPU
+        # TODO: SHOULD THIS BE MOVED TO AFTER RESAMPLE?
         if not self.test:
             if img.shape[0] * img.shape[1] * img.shape[2] > self.max_tensor_volume:
                 time_len = int(self.max_tensor_volume // (img.shape[0] * img.shape[1]))
@@ -60,12 +62,14 @@ class LandmarkDataset(PatchlessnnUnetDataset):
         desired_shape = self.get_desired_size(resampled.shape[1:])
         start_idx = np.random.randint(low=0, high=max(img.shape[-1] - desired_shape[-1], 1))
         img = img[..., start_idx:start_idx + desired_shape[-1]]
+        mask = mask[..., start_idx:start_idx + desired_shape[-1]]
         landmark_points = landmark_points[start_idx:start_idx + desired_shape[-1], ...]
 
         croporpad = tio.CropOrPad((*desired_shape[:-1], img.shape[-1]))
         resampled_cropped = croporpad(resampled)
         resampled_affine = resampled_cropped.affine
         img = resampled_cropped.tensor
+        mask = croporpad(transform(tio.LabelMap(tensor=np.expand_dims(mask, 0), affine=img_nifti.affine))).tensor
 
         landmark_points[..., 0] = landmark_points[..., 0] / original_shape[-2] * img.shape[-2]
         landmark_points[..., 1] = landmark_points[..., 1] / original_shape[-3] * img.shape[-3]
@@ -75,8 +79,8 @@ class LandmarkDataset(PatchlessnnUnetDataset):
         # landmark_points_norm = landmark_points.copy()
         for i in range(img.shape[-1]):
             for j, point in enumerate(landmark_points[i]):
-                y = int(point[0]) # / original_shape[1] * img.shape[2])
-                x = int(point[1]) # / original_shape[0] * img.shape[1])
+                y = int(point[0])  # / original_shape[1] * img.shape[2])
+                x = int(point[1])  # / original_shape[0] * img.shape[1])
 
                 # landmark_points_norm[i, j, 0] = (point[0] / original_shape[1] * 2) - 1
                 # landmark_points_norm[i, j, 1] = (point[1] / original_shape[0] * 2) - 1
@@ -108,25 +112,30 @@ class LandmarkDataset(PatchlessnnUnetDataset):
                                                        (self.max_batch_size * self.max_window_len) < img.shape[-1]) \
                     else self.max_batch_size
                 b_img = []
+                b_mask = []
                 b_landmarks = []
                 b_points = []
                 for _ in range(dynamic_batch_size):
                     start_idx = np.random.randint(low=0, high=max(img.shape[-1] - self.max_window_len, 1))
                     b_img += [img[..., start_idx:start_idx + self.max_window_len]]
+                    b_mask += [mask[..., start_idx:start_idx + self.max_window_len]]
                     b_landmarks += [landmarks[..., start_idx:start_idx + self.max_window_len]]
                     b_points += [landmark_points[start_idx:start_idx + self.max_window_len, ...]]
                 img = torch.stack(b_img)
+                mask = torch.stack(b_mask)
                 landmarks = torch.stack(b_landmarks)
                 landmark_points = torch.stack(b_points)
             else:
                 # use entire available time window
                 # must unsqueeze to accommodate code in train/val step
                 img = img.unsqueeze(0)
+                mask = mask.unsqueeze(0)
                 landmarks = landmarks.unsqueeze(0)
                 landmark_points = landmark_points.unsqueeze(0)
 
         return {'image': img.type(torch.float32),
-                'label': landmarks.type(torch.float32),
+                'label': mask.type(torch.float32),
+                'landmark_label': landmarks.type(torch.float32),
                 'landmark_coords': landmark_points.type(torch.float32),
                 'image_meta_dict': {'case_identifier': self.df.iloc[idx]['dicom_uuid'],
                                     'original_shape': original_shape,
@@ -181,7 +190,7 @@ if __name__ == "__main__":
                             batch_size=1,
                             use_dataset_fraction=0.1,
                             landmark_path='/data/cardinal_landmarks/landmarks/',
-                            landmark_qc_path=None) # '/home/local/USHERBROOKE/juda2901/dev/qc/landmarks2/')
+                            landmark_qc_path=None)  # '/home/local/USHERBROOKE/juda2901/dev/qc/landmarks2/')
     dl.setup()
     for batch in iter(dl.val_dataloader()):
         bimg = batch['image'].squeeze(0)

@@ -134,17 +134,17 @@ class nnUNetPatchlessLitModule(LightningModule):
 
     def reg_term(self, coords):
         # v1 (Cardinal Validation lm_coords (GT): 2.94)
-        # reg = torch.zeros_like(coords)
-        # winlen = 4
-        # for i in range(coords.shape[1]):
-        #     reg[0, i] = (coords.squeeze(0)[max(0, i-winlen):i+winlen].mean(dim=0) - coords.squeeze(0)[i])**2
+        reg = torch.zeros_like(coords)
+        winlen = 4
+        for i in range(coords.shape[1]):
+            reg[0, i] = (coords.squeeze(0)[max(0, i-winlen):i+winlen].mean(dim=0) - coords.squeeze(0)[i])**2
 
         # v2 (Cardinal Validation lm_coords (GT): 3.65)
-        shift_l = torch.roll(coords.clone(), 1, dims=1)
-        shift_l[0, -1] = coords[0, -1]
-        shift_r = torch.roll(coords.clone(), -1, dims=1)
-        shift_r[0, 0] = coords[0, 0]
-        reg = torch.abs(shift_r - coords) + torch.abs(shift_l - coords)
+        # shift_l = torch.roll(coords.clone(), 1, dims=1)
+        # shift_l[0, -1] = coords[0, -1]
+        # shift_r = torch.roll(coords.clone(), -1, dims=1)
+        # shift_r[0, 0] = coords[0, 0]
+        # reg = torch.abs(shift_r - coords) + torch.abs(shift_l - coords)
 
         return reg
 
@@ -152,7 +152,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         self, batch: dict[str, Tensor], batch_idx: int
     ) -> dict[str, Tensor]:  # noqa: D102
         # make sure to squeeze first dimension since batch comes from only one image
-        img, label, lm_coords = batch["image"].squeeze(0), batch["label"].squeeze(0), \
+        img, label, lm_coords = batch["image"].squeeze(0), batch["landmark_label"].squeeze(0), \
                                             batch['landmark_coords'].squeeze(0)
 
         coords, heatmaps = self.forward(img)
@@ -164,12 +164,29 @@ class nnUNetPatchlessLitModule(LightningModule):
 
         reg = self.reg_term(coords)
 
-        loss = mse + self.hparams.reg_lambda * reg.mean()
+        # train dataloader shuffle must be true
+        # a = max(1 - self.current_epoch / self.trainer.max_epochs, 0.75)
+        # mask = torch.zeros_like(mse).int()
+        # mask[:, :int(a*mse.shape[1])] = 1
+        # inv_mask = (~mask.bool()).int()
+        # loss = (mask * mse).mean() + self.hparams.reg_lambda * reg.mean()
+        loss = mse.mean() + self.hparams.reg_lambda * reg.mean()
 
         self.x_train_distances_r += list((lm_coords[..., 1, 1] - coords[..., 1, 1]).cpu().detach().numpy().flatten())
         self.y_train_distances_r += list((lm_coords[..., 1, 0] - coords[..., 1, 0]).cpu().detach().numpy().flatten())
         self.x_train_distances_l += list((lm_coords[..., 0, 1] - coords[..., 0, 1]).cpu().detach().numpy().flatten())
         self.y_train_distances_l += list((lm_coords[..., 0, 0] - coords[..., 0, 0]).cpu().detach().numpy().flatten())
+
+        # self.log(
+        #     "train/a",
+        #     a,
+        #     on_step=False,
+        #     on_epoch=True,
+        #     prog_bar=True,
+        #     logger=True,
+        #     batch_size=self.trainer.datamodule.hparams.batch_size,
+        #     sync_dist=True,
+        # )
 
         self.log(
             "train/reg_term",
@@ -183,7 +200,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         )
         self.log(
             "train/mse",
-            mse,
+            mse.mean(),
             on_step=False,
             on_epoch=True,
             prog_bar=True,
@@ -230,7 +247,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         self, batch: dict[str, Tensor], batch_idx: int
     ) -> dict[str, Tensor]:  # noqa: D102
         # squeeze first dim since batch comes from only one image
-        img, label, lm_coords = batch["image"].squeeze(0), batch["label"].squeeze(0), \
+        img, label, lm_coords = batch["image"].squeeze(0), batch["landmark_label"].squeeze(0), \
                                 batch['landmark_coords'].squeeze(0)
 
         coords, heatmaps = self.forward(img)
@@ -242,7 +259,7 @@ class nnUNetPatchlessLitModule(LightningModule):
 
         reg = self.reg_term(coords)
 
-        loss = mse + self.hparams.reg_lambda * reg.mean()
+        loss = mse.mean() + self.hparams.reg_lambda * reg.mean()
 
         # log spacing from center
         self.x_val_distances_r += list((lm_coords[..., 1, 1] - coords[..., 1, 1]).cpu().detach().numpy().flatten())
@@ -285,7 +302,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         )
         self.log(
             "val/mse",
-            mse,
+            mse.mean(),
             on_step=False,
             on_epoch=True,
             prog_bar=True,
@@ -335,7 +352,7 @@ class nnUNetPatchlessLitModule(LightningModule):
     def test_step(
         self, batch: dict[str, Tensor], batch_idx: int
     ) -> dict[str, Tensor]:  # noqa: D102
-        img, label, properties_dict, lm_coords = batch["image"], batch["label"], \
+        img, label, properties_dict, lm_coords = batch["image"], batch["landmark_label"], \
                                                                   batch["image_meta_dict"], \
                                                                   batch["landmark_coords"]
 
@@ -351,7 +368,7 @@ class nnUNetPatchlessLitModule(LightningModule):
 
         mse = self.loss(coords, lm_coords)
         reg = self.reg_term(coords)
-        loss = mse + self.hparams.reg_lambda * reg.mean()
+        loss = mse.mean() + self.hparams.reg_lambda * reg.mean()
 
         med_ae = torch.abs(coords - lm_coords).median()
         mae = torch.abs(coords - lm_coords).mean()
@@ -374,22 +391,22 @@ class nnUNetPatchlessLitModule(LightningModule):
         # lab0 = ax.scatter(x=label_points[0, 1, 1], y=label_points[0, 1, 0], c='r')
         # lab1 = ax.scatter(x=label_points[0, 1, 1], y=label_points[0, 1, 0], c='r')
         im = ax.imshow(img[0, ..., 0].cpu().detach().numpy().T, cmap='grey')
-        l0 = ax.imshow(heatmaps[0, 0, ..., 0].cpu().detach().numpy().T, alpha=0.3, cmap='jet')
-        l1 = ax.imshow(heatmaps[0, 1, ..., 0].cpu().detach().numpy().T, alpha=0.3, cmap='jet')
+        # l0 = ax.imshow(heatmaps[0, 0, ..., 0].cpu().detach().numpy().T, alpha=0.3, cmap='jet')
+        # l1 = ax.imshow(heatmaps[0, 1, ..., 0].cpu().detach().numpy().T, alpha=0.3, cmap='jet')
         p0 = ax.imshow(landmarks[0, 0, ..., 0].T, alpha=0.3, cmap='jet')
         p1 = ax.imshow(landmarks[0, 1, ..., 0].T, alpha=0.3, cmap='jet')
         def animate(i):
             im.set_array(img[0, ..., i].cpu().detach().numpy().T)
             p0.set_array(landmarks[0, 0, ..., i].T)
             p1.set_array(landmarks[0, 1, ..., i].T)
-            l0.set_array(heatmaps[0, 0, ..., i].cpu().detach().numpy().T)
-            l1.set_array(heatmaps[0, 1, ..., i].cpu().detach().numpy().T)
+            # l0.set_array(heatmaps[0, 0, ..., i].cpu().detach().numpy().T)
+            # l1.set_array(heatmaps[0, 1, ..., i].cpu().detach().numpy().T)
 
             # est0.set_offsets((coords[i, 0, 1], coords[i, 0, 0]))
             # est1.set_offsets((coords[i, 1, 1], coords[i, 1, 0]))
             # lab0.set_offsets((label_points[i, 0, 1], label_points[i, 0, 0]))
             # lab1.set_offsets((label_points[i, 1, 1], label_points[i, 1, 0]))
-            return im, p0, p1, l0, l1
+            return im, p0, p1  # , l0, l1
 
         ani = animation.FuncAnimation(fig, animate, repeat=True,
                                       frames=img.shape[-1] - 1, interval=50)
@@ -459,7 +476,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         )
         self.log(
             "test/MSE",
-            mse,
+            mse.mean(),
             on_step=False,
             on_epoch=True,
             prog_bar=True,

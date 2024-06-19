@@ -4,8 +4,8 @@ num_workers: 12
 pin_memory: True
 batch_size: 1 # must be 1
 dataset_name: ""
-csv_file_name: valve_landmarks_full/valve_landmarks.csv # ../valve_landmarks_validated/landmarks_df2.csv
-splits_column: split_0 # lm_split2 # column for train-test-val split, will be created if doesn't yet exist
+csv_file_name: ../valve_landmarks_validated/landmarks_df2.csv
+splits_column: lm_split2 # column for train-test-val split, will be created if doesn't yet exist
 seed: ${seed}
 
 common_spacing: [0.37, 0.37, 1] # approx average spacing in dataset
@@ -14,5 +14,5 @@ max_batch_size: 1
 max_tensor_volume: 5000000 # alright for 24gb gpu
 shape_divisible_by: [32, 32, 4]
 
-landmark_path: /data/icardio/processed/valve_landmarks_full/ #/data/icardio/valve_landmarks_validated/landmarks/
-landmark_qc_path: null #/data/icardio/valve_landmarks_validated/qc_files/
+landmark_path: /data/icardio/valve_landmarks_validated/landmarks/
+landmark_qc_path: /data/icardio/valve_landmarks_validated/qc_files/
