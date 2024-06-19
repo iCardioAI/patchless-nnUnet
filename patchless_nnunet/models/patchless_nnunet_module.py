@@ -49,6 +49,7 @@ class nnUNetPatchlessLitModule(LightningModule):
         save_predictions: bool = True,
         save_npz: bool = False,
         name: str = "patchless_nnunet",
+        test_landmarks: bool = True,
     ):
         """Saves the system's configuration in `hparams`. Initialize variables for training and
         validation loop.
@@ -321,6 +322,69 @@ class nnUNetPatchlessLitModule(LightningModule):
         test_dice = (2 * tp_hard) / (2 * tp_hard + fp_hard + fn_hard + 1e-8)
 
         test_dice = torch.mean(test_dice, 0)
+
+        if self.hparams.test_landmarks:
+            from skimage.morphology import convex_hull_image
+            from vital.utils.image.us.measure import EchoMeasure
+            lm_coords  =  batch["landmark_coords"].squeeze(0).cpu()
+            seg = pred_seg.squeeze(0).T.cpu().numpy()
+            lv_points_seq = np.zeros((len(seg), 2, 2))
+            try:
+                lv_points_seq = np.zeros((len(seg), 2, 2))
+                for i in range(len(seg)):
+                    lv = np.isin(seg[i], 1)  # LV is value 1, MYO is 2
+                    lv_convex = convex_hull_image(lv)
+
+                    # lower inner corners of segmentation
+                    lv_points = EchoMeasure._endo_base(seg[i], lv_labels=1, myo_labels=2)
+                    # Visualize
+                    plt.figure()
+                    plt.imshow(img[0, 0, ..., i].cpu().numpy().T, cmap='gray')
+                    plt.imshow(seg[i], alpha=0.15, cmap='jet')
+                    for landmark, label in zip(lv_points, lm_coords[i]):
+                        plt.scatter(landmark[1], landmark[0], c="r", marker="o", s=7)
+                        plt.scatter(label[1], label[0], c="g", marker="x", s=7)
+                    plt.show()
+
+                    lv_points_seq[i] = lv_points
+                coords = torch.tensor(lv_points_seq)
+            except Exception as e:
+                print(e)
+
+            med_ae = torch.abs(coords - lm_coords).median()
+            mae = torch.abs(coords - lm_coords).mean()
+            mse = ((coords - lm_coords) ** 2).mean()
+
+            self.log(
+                "test/LM/MAE",
+                mae,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+                batch_size=self.trainer.datamodule.hparams.batch_size,
+                sync_dist=True,
+            )
+            self.log(
+                "test/LM/MedianAE",
+                med_ae,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+                batch_size=self.trainer.datamodule.hparams.batch_size,
+                sync_dist=True,
+            )
+            self.log(
+                "test/LM/MSE",
+                mse.mean(),
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+                batch_size=self.trainer.datamodule.hparams.batch_size,
+                sync_dist=True,
+            )
 
         self.log(
             "test/dice",
