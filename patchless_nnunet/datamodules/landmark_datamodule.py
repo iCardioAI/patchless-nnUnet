@@ -26,11 +26,13 @@ class LandmarkDataset(PatchlessnnUnetDataset):
                  test=False,
                  landmark_path=None,
                  landmark_qc_path=None,
+                 seg_mask=False,
                  *args, **kwargs):
         super().__init__(df, data_path, common_spacing, max_window_len, use_dataset_fraction, max_batch_size,
                          max_tensor_volume, shape_divisible_by, test)
 
         self.landmark_path = landmark_path
+        self.seg_mask = seg_mask
         print(len(self.df))
 
     def __getitem__(self, idx):
@@ -38,7 +40,10 @@ class LandmarkDataset(PatchlessnnUnetDataset):
         sub_path = get_img_subpath(self.df.iloc[idx])
         img_nifti = nib.load(self.data_path + '/img/' + sub_path)
         img = img_nifti.get_fdata() / 255
-        mask = nib.load(self.data_path + '/segmentation/' + sub_path.replace("_0000", "")).get_fdata()
+        if self.seg_mask:
+            mask = nib.load(self.data_path + '/segmentation/' + sub_path.replace("_0000", "")).get_fdata()
+        else:
+            mask = np.zeros_like(img)
         landmark_points = np.load(self.landmark_path + sub_path.replace("_0000", "").replace(".nii.gz", ".npy"))
         original_shape = np.asarray(list(img.shape))
 
