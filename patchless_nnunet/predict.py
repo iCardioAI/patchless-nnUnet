@@ -14,6 +14,7 @@ from monai.data import DataLoader, ArrayDataset, MetaTensor
 from monai.transforms import MapTransform
 from monai.transforms import ToTensord
 from omegaconf import DictConfig
+import skimage.exposure as exp
 
 from patchless_nnunet import utils, setup_root
 
@@ -94,7 +95,7 @@ class PatchlessnnUnetPredictor:
         setup_root()
 
     @staticmethod
-    def get_array_dataset(input_path):
+    def get_array_dataset(input_path, apply_eq_hist=False):
         tensor_list = []
         # find all nifti files in input_path
         # open and get relevant information
@@ -103,6 +104,13 @@ class PatchlessnnUnetPredictor:
             nifti_img = nib.load(nifti_file_p)
 
             data = np.expand_dims(nifti_img.get_fdata(), 0)
+
+            if apply_eq_hist:
+                print("Applying equalize_adapthist")
+                data = data / 255 if data.max() > 200 else data  # arbitrary 200 for int-equivalent images, improve this
+                for i in range(data.shape[-1]):
+                    data[..., i] = exp.equalize_adapthist(data[..., i], clip_limit=0.01)
+
             hdr = nifti_img.header
             aff = nifti_img.affine
 
@@ -154,7 +162,7 @@ class PatchlessnnUnetPredictor:
         preprocessed = PatchlessPreprocessd(keys='image', common_spacing=cfg.model.common_spacing)
         tf = transforms.compose.Compose([preprocessed, ToTensord(keys="image", track_meta=True)])
 
-        numpy_arr_data = PatchlessnnUnetPredictor.get_array_dataset(cfg.input_folder)
+        numpy_arr_data = PatchlessnnUnetPredictor.get_array_dataset(cfg.input_folder, cfg.apply_eq_hist)
         dataset = ArrayDataset(img=numpy_arr_data, img_transform=tf)
 
         dataloader = DataLoader(
@@ -167,7 +175,11 @@ class PatchlessnnUnetPredictor:
 
         log.info("Starting predicting!")
         log.info(f"Using checkpoint: {cfg.ckpt_path}")
-        trainer.predict(model=model, dataloaders=dataloader, ckpt_path=cfg.ckpt_path)
+        if torch.load(cfg.ckpt_path).get("pytorch-lightning_version", None):
+            trainer.predict(model=model, dataloaders=dataloader, ckpt_path=cfg.ckpt_path)
+        else:
+            model.net.load_state_dict(torch.load(cfg.ckpt_path))
+            trainer.predict(model=model, dataloaders=dataloader)
 
         metric_dict = trainer.callback_metrics
 

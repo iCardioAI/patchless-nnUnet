@@ -19,7 +19,7 @@ def get_img_subpath(row):
     :param row: dataframe row with all columns filled in
     :return: string containing path to image file
     """
-    return f"{row['study']}/{row['view'].lower()}/{row['dicom_uuid']}_0000.nii.gz"
+    return f"{row['study']}/{str(row['view']).lower()}/{row['dicom_uuid']}_0000.nii.gz"
 
 class PatchlessnnUnetDataset(Dataset):
     def __init__(self,

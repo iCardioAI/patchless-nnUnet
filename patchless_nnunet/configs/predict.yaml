@@ -42,3 +42,5 @@ paths:
 model:
   save_predictions: True
   tta: ${tta}
+
+apply_eq_hist: True
