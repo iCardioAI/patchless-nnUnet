@@ -107,7 +107,7 @@ class PatchlessnnUnetPredictor:
 
             if apply_eq_hist:
                 print("Applying equalize_adapthist")
-                data = data / 255 if data.max() > 200 else data  # arbitrary 200 for int-equivalent images, improve this
+                data = data / 255 if data.max() > 200 else np.clip(data, 0, 1)  # arbitrary 200 for int-equivalent images, improve this
                 for i in range(data.shape[-1]):
                     data[..., i] = exp.equalize_adapthist(data[..., i], clip_limit=0.01)
 
