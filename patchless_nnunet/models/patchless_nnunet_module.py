@@ -17,7 +17,7 @@ from lightning.pytorch.loggers import TensorBoardLogger, CometLogger
 from torch import Tensor
 from torch.nn.functional import pad
 from torch.optim.lr_scheduler import _LRScheduler
-from torchvision.transforms.functional import adjust_contrast, rotate
+from torchvision.transforms.functional import adjust_contrast, rotate, adjust_brightness
 
 from patchless_nnunet.utils.inferers import SlidingWindowInferer
 from patchless_nnunet.utils.softmax import softmax_helper
@@ -507,7 +507,7 @@ class nnUNetPatchlessLitModule(LightningModule):
             raise ValueError("No 2D images here. You dummy.")
 
     def tta_predict(
-        self, image: Union[Tensor, MetaTensor], apply_softmax: bool = True
+        self, image: Union[Tensor, MetaTensor], apply_softmax: bool = True, conserve_intermediate=False
     ) -> Union[Tensor, MetaTensor]:
         """Predict with test time augmentation.
 
@@ -519,40 +519,60 @@ class nnUNetPatchlessLitModule(LightningModule):
             Aggregated prediction over number of flips.
         """
         preds = self.predict(image, apply_softmax)
-        factors = [1.1, 0.9, 1.25, 0.75]
-        translations = [40, 60, 80, 120]
+        pred_list = []
+        factors = [1.4, 1.1, 0.9, 1.25, 0.75, 0.6]
+        translations = [] # [40, 60, 80, 120] Not good for TTA unc
         rotations = [5, 10, -5, -10]
 
         for factor in factors:
-            preds += self.predict(adjust_contrast(image.permute((4, 0, 1, 2, 3)), factor).permute((1, 2, 3, 4, 0)), apply_softmax)
+            p = self.predict(adjust_contrast(image.permute((4, 0, 1, 2, 3)), factor).permute((1, 2, 3, 4, 0)), apply_softmax)
+            pred_list += [p]
+            preds += p
 
+        for factor in factors:
+            p = self.predict(adjust_brightness(image.permute((4, 0, 1, 2, 3)), factor).permute((1, 2, 3, 4, 0)), apply_softmax)
+            pred_list += [p]
+            preds += p
         def x_translate_left(img, amount=20):
-            return pad(img, (0, 0, 0, 0, amount, 0), mode="constant")[:, :, :-amount, :, :]
+            return pad(img, (0, 0, 0, 0, amount, 0), mode="constant", value=0)[:, :, :-amount, :, :]
         def x_translate_right(img, amount=20):
-            return pad(img, (0, 0, 0, 0, 0, amount), mode="constant")[:, :, amount:, :, :]
+            return pad(img, (0, 0, 0, 0, 0, amount), mode="constant", value=0)[:, :, amount:, :, :]
         def y_translate_up(img, amount=20):
-            return pad(img, (0, 0, amount, 0, 0, 0), mode="constant")[:, :, :, :-amount, :]
+            return pad(img, (0, 0, amount, 0, 0, 0), mode="constant", value=0)[:, :, :, :-amount, :]
         def y_translate_down(img, amount=20):
-            return pad(img, (0, 0, 0, amount, 0, 0), mode="constant")[:, :, :, amount:, :]
+            return pad(img, (0, 0, 0, amount, 0, 0), mode="constant", value=0)[:, :, :, amount:, :]
 
         for translation in translations:
-            preds += x_translate_right(self.predict(x_translate_left(image, translation), apply_softmax), translation)
-            preds += x_translate_left(self.predict(x_translate_right(image, translation), apply_softmax), translation)
-            preds += y_translate_down(self.predict(y_translate_up(image, translation), apply_softmax), translation)
-            preds += y_translate_up(self.predict(y_translate_down(image, translation), apply_softmax), translation)
+            p = x_translate_right(self.predict(x_translate_left(image, translation), apply_softmax), translation)
+            pred_list += [p]
+            preds += p
+            p = x_translate_left(self.predict(x_translate_right(image, translation), apply_softmax), translation)
+            pred_list += [p]
+            preds += p
+            p = y_translate_down(self.predict(y_translate_up(image, translation), apply_softmax), translation)
+            pred_list += [p]
+            preds += p
+            p = y_translate_up(self.predict(y_translate_down(image, translation), apply_softmax), translation)
+            pred_list += [p]
+            preds += p
 
         # TODO: optimize this for compute time
         for rotation in rotations:
             rotated = torch.zeros_like(image)
             for i in range(image.shape[-1]):
-                rotated[0, :, :, :, i] = rotate(image[0, :, :, :, i], angle=rotation)
+                rotated[0, :, :, :, i] = rotate(image[0, :, :, :, i], angle=rotation, fill=0)
             rot_pred = self.predict(rotated, apply_softmax)
             for i in range(image.shape[-1]):
-                rot_pred[0, :, :, :, i] = rotate(rot_pred[0, :, :, :, i], angle=-rotation)
-            preds += rot_pred
+                rot_pred[0, :, :, :, i] = rotate(rot_pred[0, :, :, :, i], angle=-rotation, fill=0)
+            p = rot_pred
+            pred_list += [p]
+            preds += p
 
         preds /= len(factors) + len(translations) * 4 + len(rotations) + 1
-        return preds
+        if conserve_intermediate:
+            return preds, pred_list
+        else:
+            return preds
 
     def predict_3D_3Dconv_tiled(
         self, image: Union[Tensor, MetaTensor], apply_softmax: bool = True
