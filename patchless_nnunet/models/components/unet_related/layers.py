@@ -192,14 +192,9 @@ class ConvLayer(nn.Module):
         self.conv = get_conv(in_channels, out_channels, kernel_size, stride, kwargs["dim"])
         self.norm = get_norm(kwargs["norm"], out_channels)
         self.lrelu = nn.LeakyReLU(negative_slope=kwargs["negative_slope"], inplace=True)
-        self.use_drop_block = kwargs["drop_block"]
-        if self.use_drop_block:
-            self.drop_block = get_drop_block(kwargs["dim"])
 
     def forward(self, data: Tensor):  # noqa: D102
         out = self.conv(data)
-        if self.use_drop_block:
-            out = self.drop_block(out)
         out = self.norm(out)
         out = self.lrelu(out)
         return out
@@ -266,10 +261,6 @@ class ResidBlock(nn.Module):
         self.conv2 = get_conv(out_channels, out_channels, kernel_size, 1, kwargs["dim"])
         self.norm = get_norm(kwargs["norm"], out_channels)
         self.lrelu = nn.LeakyReLU(negative_slope=kwargs["negative_slope"], inplace=True)
-        self.use_drop_block = kwargs["drop_block"]
-        if self.use_drop_block:
-            self.drop_block = get_drop_block(kwargs["dim"])
-            self.skip_drop_block = get_drop_block(kwargs["dim"])
         self.downsample = None
         if max(stride) > 1 or in_channels != out_channels:
             self.downsample = get_conv(
@@ -281,13 +272,9 @@ class ResidBlock(nn.Module):
         residual = input_data
         out = self.conv1(input_data)
         out = self.conv2(out)
-        if self.use_drop_block:
-            out = self.drop_block(out)
         out = self.norm(out)
         if self.downsample is not None:
             residual = self.downsample(residual)
-            if self.use_drop_block:
-                residual = self.skip_drop_block(residual)
             residual = self.norm_res(residual)
         out = self.lrelu(out + residual)
         return out
@@ -416,23 +403,9 @@ class UpsampleBlock(nn.Module):
             in_channels, out_channels, stride, stride, kwargs["dim"], bias=bias
         )
         self.conv_block = ConvBlock(2 * out_channels, out_channels, kernel_size, 1, **kwargs)
-        self.attention = kwargs["attention"]
-        if self.attention:
-            att_out, norm, dim = out_channels // 2, kwargs["norm"], kwargs["dim"]
-            self.conv_o = AttentionLayer(out_channels, att_out, norm, dim)
-            self.conv_s = AttentionLayer(out_channels, att_out, norm, dim)
-            self.psi = AttentionLayer(att_out, 1, norm, dim)
-            self.sigmoid = nn.Sigmoid()
-            self.relu = nn.ReLU(inplace=True)
 
     def forward(self, input_data: Tensor, skip_data: Tensor):  # noqa: D102
         out = self.transp_conv(input_data)
-        if self.attention:
-            out_a = self.conv_o(out)
-            skip_a = self.conv_s(skip_data)
-            psi_a = self.psi(self.relu(out_a + skip_a))
-            attention = self.sigmoid(psi_a)
-            skip_data = skip_data * attention
         out = torch.cat((out, skip_data), dim=1)
         out = self.conv_block(out)
         return out

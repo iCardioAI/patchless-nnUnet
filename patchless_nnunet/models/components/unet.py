@@ -1,4 +1,4 @@
-from typing import Sequence, Union
+from typing import Sequence, Union, List
 
 import numpy as np
 import torch
@@ -124,23 +124,21 @@ class UNet(nn.Module):
         self.apply(self.initialize_weights)
 
     def forward(
-        self, input_data: Union[Tensor, MetaTensor]
-    ) -> Union[Tensor, MetaTensor]:  # noqa: D102
+        self, input_data: Tensor
+    ) -> Tensor:  # noqa: D102
         out = self.input_block(input_data)
         encoder_outputs = [out]
         for downsample in self.downsamples:
             out = downsample(out)
             encoder_outputs.append(out)
         out = self.bottleneck(out)
-        decoder_outputs = []
-        for upsample, skip in zip(self.upsamples, reversed(encoder_outputs)):
+        decoder_outputs: List[torch.Tensor] = []  # annotate type for TorchScript
+        num_encoders = len(encoder_outputs)
+        for idx, upsample in enumerate(self.upsamples):
+            skip = encoder_outputs[num_encoders - 1 - idx]
             out = upsample(out, skip)
             decoder_outputs.append(out)
         out = self.output_block(out)
-        if self.training and self.deep_supervision:
-            out = [out]
-            for i, decoder_out in enumerate(decoder_outputs[2:-1][::-1]):
-                out.append(self.deep_supervision_heads[i](decoder_out))
         return out
 
     def get_conv_block(
